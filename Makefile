@@ -35,7 +35,7 @@ export MSYS = winsymlinks:nativestrict
 .PHONY: help link unlink verify
 
 help:           ## list targets and discovered tools
-	@awk 'BEGIN{FS=":.*##"} /^[a-z-]+:.*##/ {printf "  %-10s %s\n",$$1,$$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN{FS=":.*##"} /^[a-z-]+:.*##/ {printf "  %-10s %s\n",$$1,$$2}' $(MAKEFILE_LIST) ;
 
 link:           ## create / refresh all symlinks (idempotent — safe to re-run)
 	@tmp=$$(mktemp); ln -s "$$tmp" "$$tmp.lnk" 2>/dev/null; \
