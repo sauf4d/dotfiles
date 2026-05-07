@@ -107,37 +107,39 @@ dotfiles verify
 rm -f ~/.zcompdump && exec zsh
 ```
 
-## Windows (Git Bash)
+## Windows
 
 Windows uses a small `Makefile` to sync `config/<tool>/` into `~/.config/<tool>/`
 (and `config/claude/<file>` into `~/.claude/<file>`). `bin/dotfiles` is for
 macOS/Linux only — the `Makefile` hard-fails on those platforms.
 
+Runs from **PowerShell, cmd, or Git Bash** — recipes are forced through Git
+Bash regardless of host shell, so all three behave identically.
+
 One-time setup:
 
 1. Enable **Developer Mode** (Settings → Privacy & security → For developers).
    Lets `ln -s` create real Windows symlinks without admin.
-2. In Git Bash, add to `~/.bashrc`:
-   ```bash
-   export MSYS=winsymlinks:nativestrict
-   ```
-3. Install make and any tools you need via Scoop:
-   ```bash
+2. Install Git for Windows and GNU Make via Scoop:
+   ```powershell
    scoop install make git
    ```
+   (Git for Windows ships the bash recipes need; the Makefile auto-discovers
+   it via `git --exec-path`.)
 
 Daily use:
 
 ```bash
 make            # list targets
-make doctor     # check that real symlinks work in this shell
 make link       # create / refresh all config symlinks (idempotent)
 make verify     # report OK / MISSING / STALE / CONFLICT for every expected link
 make unlink     # remove every symlink we created (only touches symlinks)
 ```
 
-`link` refuses to clobber a real file at the target — it skips and prints
-`SKIP` so you can rename or delete it manually first.
+`link` first probes whether real symlinks can be created in this shell and
+bails with `cannot link` if they can't (e.g. Developer Mode is disabled).
+It also refuses to clobber a real file at the target — prints `SKIP` so you
+can rename or delete it manually first.
 
 ## Documentation
 

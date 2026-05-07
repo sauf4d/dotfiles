@@ -1,10 +1,23 @@
-# Windows-only — run from Git Bash with `make <target>`.
+# Windows-only — runs from PowerShell, cmd, or Git Bash.
 # macOS / Linux users: use bin/dotfiles (this Makefile hard-fails there).
 
-UNAME := $(shell uname -s)
-ifeq ($(filter MINGW% MSYS% CYGWIN%, $(UNAME)),)
-  $(error This Makefile is Windows-only ($(UNAME) detected). Use bin/dotfiles on macOS/Linux.)
+ifneq ($(OS),Windows_NT)
+  $(error This Makefile is Windows-only. Use bin/dotfiles on macOS/Linux.)
 endif
+
+# Force Git Bash for recipes regardless of host shell (PowerShell, cmd, Git Bash).
+# Plain `bash.exe` on PATH often resolves to WSL bash, which can't run these recipes,
+# so we derive the Git Bash path from `git --exec-path` (works for Git for Windows
+# and scoop installs alike). Requires git on PATH.
+GIT_EXEC := $(shell git --exec-path 2>nul)
+ifeq ($(GIT_EXEC),)
+  $(error git not found on PATH. Install Git for Windows: scoop install git)
+endif
+SHELL := $(GIT_EXEC)/../../../bin/bash.exe
+.SHELLFLAGS := -c
+
+# HOME may be unset in cmd/PowerShell; fall back to USERPROFILE.
+HOME ?= $(USERPROFILE)
 
 DOTFILES   := $(CURDIR)
 CONFIG_DIR := $(DOTFILES)/config
@@ -19,15 +32,20 @@ CLAUDE_FILES := $(notdir $(wildcard $(CONFIG_DIR)/claude/*))
 export MSYS = winsymlinks:nativestrict
 
 .DEFAULT_GOAL := help
-.PHONY: help link unlink verify doctor
+.PHONY: help link unlink verify
 
 help:           ## list targets and discovered tools
 	@awk 'BEGIN{FS=":.*##"} /^[a-z-]+:.*##/ {printf "  %-10s %s\n",$$1,$$2}' $(MAKEFILE_LIST)
-	@echo ""
-	@echo "  config dirs : $(PACKAGES)"
-	@echo "  claude files: $(CLAUDE_FILES)"
 
 link:           ## create / refresh all symlinks (idempotent — safe to re-run)
+	@tmp=$$(mktemp); ln -s "$$tmp" "$$tmp.lnk" 2>/dev/null; \
+	  if [ ! -L "$$tmp.lnk" ]; then \
+	    rm -f "$$tmp" "$$tmp.lnk"; \
+	    echo "  cannot link — native symlinks unavailable."; \
+	    echo "  Enable Windows Developer Mode: Settings -> Privacy & security -> For developers"; \
+	    exit 1; \
+	  fi; \
+	  rm -f "$$tmp" "$$tmp.lnk"
 	@mkdir -p "$(TARGET)" "$(CLAUDE_TGT)"
 	@for pkg in $(PACKAGES); do \
 	  dst="$(TARGET)/$$pkg"; src="$(CONFIG_DIR)/$$pkg"; \
@@ -71,11 +89,3 @@ verify:         ## report status of every expected link (OK / MISSING / STALE / 
 	  else echo "  MISSING   $$dst"; status=1; fi; \
 	done; \
 	exit $$status
-
-doctor:         ## check that real Windows symlinks work in this shell
-	@if [ -z "$$MSYS" ] || ! echo "$$MSYS" | grep -q winsymlinks; then \
-	  echo "  warn  MSYS env var doesn't include winsymlinks — add to ~/.bashrc: export MSYS=winsymlinks:nativestrict"; \
-	fi
-	@tmp=$$(mktemp); ln -s "$$tmp" "$$tmp.lnk" 2>/dev/null && [ -L "$$tmp.lnk" ] && \
-	  echo "  ok    native symlinks work" && rm -f "$$tmp" "$$tmp.lnk" || \
-	  { echo "  fail  native symlinks unavailable — enable Windows Developer Mode (Settings -> For developers)"; rm -f "$$tmp" "$$tmp.lnk"; exit 1; }
