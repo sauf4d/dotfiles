@@ -1,7 +1,49 @@
 {
+  "agentPushNotifEnabled": false,
+  "awaySummaryEnabled": false,
+  "effortLevel": "high",
+  "enabledPlugins": {
+    "claude-code-setup@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "claude-mem@thedotmack": true,
+    "code-simplifier@claude-plugins-official": false,
+    "commit-commands@claude-plugins-official": true,
+    "context7@claude-plugins-official": true,
+    "ecc@everything-claude-code": true,
+    "frontend-design@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true
+  },
   "env": {
     "ECC_DISABLED_HOOKS": "pre:config-protection,pre:edit-write:gateguard-fact-force"
   },
+  "extraKnownMarketplaces": {
+    "everything-claude-code": {
+      "autoUpdate": true,
+      "source": {
+        "source": "git",
+        "url": "https://github.com/affaan-m/everything-claude-code.git"
+      }
+    },
+    "thedotmack": {
+      "autoUpdate": true,
+      "source": {
+        "repo": "thedotmack/claude-mem",
+        "source": "github"
+      }
+    },
+    "ui-ux-pro-max-skill": {
+      "autoUpdate": true,
+      "source": {
+        "repo": "nextlevelbuilder/ui-ux-pro-max-skill",
+        "source": "github"
+      }
+    }
+  },
+  "inputNeededNotifEnabled": true,
   "permissions": {
     "allow": [
       "Bash(ls:*)",
@@ -14,55 +56,15 @@
       "Bash(head:*)",
       "Bash(git:*)",
       "Bash(wc:*)",
-      "Bash(find:*)",
-      "Bash(wc -l '/Users/lequanghung/Workspace/htj/minos/min001/minos-kenshin-denpyou-koushin/02.output/04.dd'/**/*.md '/Users/lequanghung/Workspace/htj/minos/min001/minos-kenshin-denpyou-koushin/02.output/04.dd'/*.md)",
-      "Bash(git rebase:*)",
-      "Bash(wc -l '/Users/lequanghung/Workspace/htj/minos/min001/minos-kenshin-denpyou-koushin/02.output/04.dd/D_ユーティリティ'/*.md)",
-      "Bash(wc -l '02.output/04.dd/B_インフラストラクチャ'/*.md)",
-      "Bash(find . -name \"*.md\" -exec grep -l \"B_インフラストラクチャ\\\\|D_ユーティリティ\" {} \\\\;)",
-      "Bash(find . -name \"*.md\" -exec sed -i '' 's/B_インフラストラクチャ/B_Infrastructure/g; s/D_ユーティリティ/D_Utilities/g' {} \\\\;)",
-      "Bash(git rm *)"
+      "Bash(find:*)"
     ],
     "defaultMode": "auto"
   },
+  "preferredNotifChannel": "auto",
+  "skillListingBudgetFraction": 0.025,
+  "skipAutoPermissionPrompt": true,
   "statusLine": {
-    "type": "command",
-    "command": "bash $HOME/.claude/statusline.sh"
-  },
-  "enabledPlugins": {
-    "frontend-design@claude-plugins-official": true,
-    "commit-commands@claude-plugins-official": true,
-    "code-simplifier@claude-plugins-official": false,
-    "claude-mem@thedotmack": true,
-    "context7@claude-plugins-official": true,
-    "claude-md-management@claude-plugins-official": true,
-    "claude-code-setup@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
-    "security-guidance@claude-plugins-official": true,
-    "pr-review-toolkit@claude-plugins-official": true,
-    "everything-claude-code@everything-claude-code": true,
-    "skill-creator@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true
-  },
-  "extraKnownMarketplaces": {
-    "ui-ux-pro-max-skill": {
-      "source": {
-        "source": "github",
-        "repo": "nextlevelbuilder/ui-ux-pro-max-skill"
-      },
-      "autoUpdate": true
-    },
-    "everything-claude-code": {
-      "source": {
-        "source": "git",
-        "url": "https://github.com/affaan-m/everything-claude-code.git"
-      },
-      "autoUpdate": true
-    }
-  },
-  "effortLevel": "high",
-  "awaySummaryEnabled": false,
-  "preferredNotifChannel": "ghostty",
-  "agentPushNotifEnabled": true,
-  "skipAutoPermissionPrompt": true
+    "command": "bash $HOME/.claude/statusline.sh",
+    "type": "command"
+  }
 }
