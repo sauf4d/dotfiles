@@ -4,6 +4,10 @@ PKG_NAME="zoxide"
 PKG_DESC="A smarter cd command"
 
 pkg_init() {
+    # Suppress doctor warning — sheldon's zsh-defer loads plugins after our
+    # init, which trips zoxide's order check. Functionality is unaffected.
+    export _ZO_DOCTOR=0
+
     eval "$(zoxide init zsh)" || {
         _dotfiles_log_error "Failed to initialize zoxide"
         return 1
