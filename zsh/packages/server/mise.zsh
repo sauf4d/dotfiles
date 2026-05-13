@@ -42,7 +42,7 @@ pkg_init() {
     # precmd, keeping versioned binaries ahead of system paths (e.g. Homebrew).
     eval "$(mise activate zsh)"
 
-    export _DOTFILES_MISE_LOADED="1"
+    _DOTFILES_MISE_LOADED="1"
 }
 
 init_package_template "$PKG_NAME"
