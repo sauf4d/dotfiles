@@ -85,7 +85,13 @@ if [[ -f "$_DF_LIB" ]]; then
     # shellcheck source=../zsh/lib/_log.sh
     . "$_DF_LIB"
 else
-    # Last-resort fallback — installer not yet present (fresh-machine bootstrap)
+    # Last-resort fallback — _log.sh not present (fresh-machine bootstrap or
+    # DOTFILES_ROOT points elsewhere). Define empty color vars and minimal log
+    # stubs so `set -u` is happy and the script can still run.
+    _DF_BOLD=''; _DF_RESET=''; _DF_RED=''; _DF_GREEN=''
+    _DF_YELLOW=''; _DF_BLUE=''; _DF_MAGENTA=''; _DF_CYAN=''
+    _DF_WHITE=''; _DF_GRAY=''
+    _DF_CHECK='✓'; _DF_CROSS='✗'; _DF_ARROW='→'; _DF_BULLET='•'; _DF_WARN='⚠'
     _dotfiles_log_info()    { :; }
     _dotfiles_log_debug()   { :; }
     _dotfiles_log_dim()     { :; }
@@ -454,15 +460,12 @@ link_directory_files() {
         local name=$(basename "$item")
         local target="$target_prefix$name"
 
-        # Allow caller-provided extra exclusions via DOTFILES_CONFIG_EXCLUDE array
-        local extra_excluded=false
-        if [[ -n "${DOTFILES_CONFIG_EXCLUDE+x}" ]]; then
-            local _ex
-            for _ex in "${DOTFILES_CONFIG_EXCLUDE[@]}"; do
-                [[ "$name" == "$_ex" ]] && { extra_excluded=true; break; }
-            done
+        # Caller-provided exclusions via DOTFILES_CONFIG_EXCLUDE (colon-delimited).
+        # Same format as check_directory_symlinks and remove_symlinks_from_dir use.
+        if [[ -n "${DOTFILES_CONFIG_EXCLUDE:-}" ]] && \
+           [[ ":${DOTFILES_CONFIG_EXCLUDE}:" == *":${name}:"* ]]; then
+            continue
         fi
-        [[ "$extra_excluded" == "true" ]] && continue
 
         # Ensure target directory exists
         local target_dir
