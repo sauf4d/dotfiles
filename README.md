@@ -19,7 +19,7 @@ Profiles are cumulative — each includes everything below it.
 | Profile | Tools |
 |---------|-------|
 | `minimal` | sheldon, tmux |
-| `server` | minimal + bat, eza, fd, fzf, jq, ripgrep, tealdeer, zoxide, mise |
+| `server` | minimal + bat, eza, fd, fzf, jq, ripgrep, tealdeer, zoxide, vfox |
 
 Switch profile anytime:
 
@@ -36,7 +36,7 @@ dotfiles profile server
 │   ├── lib/            # Shared libraries (platform, installer)
 │   └── packages/
 │       ├── minimal/    # sheldon, tmux
-│       └── server/     # bat, eza, fd, fzf, jq, ripgrep, tealdeer, zoxide, mise
+│       └── server/     # bat, eza, fd, fzf, jq, ripgrep, tealdeer, zoxide, vfox
 ├── bin/
 │   └── dotfiles        # CLI (bash)
 ├── config/             # App configs (sheldon, bat, tealdeer, ripgrep, yabai, skhd)
@@ -68,7 +68,7 @@ pkg_init() {
 init_package_template "$PKG_NAME"
 ```
 
-See [`docs/guides/adding-a-package.md`](docs/guides/adding-a-package.md) for the full lifecycle reference.
+See [`docs/architecture.md#appendix-b-adding-a-package`](docs/architecture.md#appendix-b-adding-a-package) for the full lifecycle reference.
 
 ## CLI commands
 
@@ -92,7 +92,7 @@ dotfiles uninstall        # remove symlinks and config
 
 ## Troubleshooting
 
-See [`docs/guides/troubleshooting.md`](docs/guides/troubleshooting.md) for common issues.
+See [`docs/architecture.md#appendix-c-troubleshooting`](docs/architecture.md#appendix-c-troubleshooting) for common issues.
 
 Quick checks:
 
@@ -144,9 +144,9 @@ can rename or delete it manually first.
 ## Documentation
 
 - [Architecture](docs/architecture.md) — system design, lifecycle, internals
-- [Adding a package](docs/guides/adding-a-package.md) — extension guide
-- [Troubleshooting](docs/guides/troubleshooting.md) — common issues
-- [Requirements](docs/requirements.md) — functional and non-functional spec
+- [Appendix A: Requirements](docs/architecture.md#appendix-a-system-requirements) — functional and non-functional spec
+- [Appendix B: Adding a package](docs/architecture.md#appendix-b-adding-a-package) — extension guide
+- [Appendix C: Troubleshooting](docs/architecture.md#appendix-c-troubleshooting) — common issues
 
 ## Contributing
 

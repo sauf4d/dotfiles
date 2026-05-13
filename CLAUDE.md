@@ -38,8 +38,8 @@ zshrc                 Entry point (< 40 lines) — sources core/ + libs + packag
 ```
 
 Full details: `docs/architecture.md`
-Requirements: `docs/requirements.md`
-How to add a package: `docs/guides/adding-a-package.md`
+Requirements: `docs/architecture.md#appendix-a-system-requirements`
+How to add a package: `docs/architecture.md#appendix-b-adding-a-package`
 
 ---
 
@@ -149,5 +149,5 @@ source ~/.zshrc
 |----------|---------|---------|
 | `DOTFILES_ROOT` | `~/.dotfiles` | Path to this repo |
 | `DOTFILES_PROFILE` | `minimal` | Active profile (set via `dotfiles profile <name>`) |
-| `DOTFILES_VERBOSE` | `false` | Verbose logging only — does not affect the install flow |
+| `DOTFILES_VERBOSE` | `false` | Detailed shell-startup + CLI logs (env-passed values override the saved default) |
 | `DOTFILES_INSTALL` | `false` | Set to `true` to run the install flow (set internally by `dotfiles install`) |
