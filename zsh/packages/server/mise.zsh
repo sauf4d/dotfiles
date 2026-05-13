@@ -23,21 +23,24 @@ pkg_install() {
 }
 
 pkg_post_install() {
-    # Install tools declared in ~/.config/mise/config.toml on first install.
-    # Best-effort: don't fail the whole install flow if a single tool plugin breaks.
     command -v mise &>/dev/null || return 0
     mise install -y 2>/dev/null || true
+    mise reshim 2>/dev/null || true
 }
 
 pkg_init() {
     [[ "${_DOTFILES_MISE_LOADED:-}" == "1" ]] && return 0
 
-    # Use shims for PATH management — works in interactive shells, scripts,
-    # cron jobs, and non-interactive environments without hook overhead.
+    # Shims first — ensures mise tools work in scripts, cron, and non-interactive
+    # shells even before the activate hook-env fires on the first precmd.
     local shims_dir="${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims"
     if [[ -d "$shims_dir" && ":$PATH:" != *":$shims_dir:"* ]]; then
         export PATH="$shims_dir:$PATH"
     fi
+
+    # Activate for interactive shells — hook-env prepends install dirs on each
+    # precmd, keeping versioned binaries ahead of system paths (e.g. Homebrew).
+    eval "$(mise activate zsh)"
 
     export _DOTFILES_MISE_LOADED="1"
 }

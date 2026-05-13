@@ -9,12 +9,15 @@
 # release. Pin to a concrete version (e.g. node = "20") if you need stability.
 
 [tools]
-node   = "lts"
-go     = "latest"
+node = "lts"
+go = "latest"
 python = "latest"
-bun    = "latest"
-"npm:pnpm" = "latest"
-"npm:yarn" = "latest"
+bun = "latest"
+biome = "latest"
+npm = "latest"
+pnpm = "latest"
+yarn = "latest"
+rust = "latest"
 
 [settings]
 experimental = false
