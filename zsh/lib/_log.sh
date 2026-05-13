@@ -4,25 +4,25 @@
 # (zsh/lib/installer.zsh). MUST stay POSIX-compatible.
 # =============================================================================
 #
-# Verbose contract:
-#   DOTFILES_VERBOSE=false (default)   debug/info/dim/success → suppressed
-#   DOTFILES_VERBOSE=true              all helpers → enabled
+# Two-tier model:
 #
-# Always-on helpers (regardless of verbose state):
-#   _dotfiles_log_step      CLI progress marker        stdout
-#   _dotfiles_log_summary   one-line final outcome     stdout
-#   _dotfiles_log_warning   non-fatal problem          stderr
-#   _dotfiles_log_error     fatal problem              stderr
+#   Tier 1 — Always-print (visible in CLI invocations and shell startup errors)
+#     _dotfiles_log_step      CLI progress marker              stdout
+#     _dotfiles_log_detail    plain bullet: always-visible     stdout
+#     _dotfiles_log_result    label: value diagnostic line     stdout
+#     _dotfiles_log_summary   one-line final outcome           stdout
+#     _dotfiles_log_warning   non-fatal problem                stderr
+#     _dotfiles_log_error     fatal problem                    stderr
 #
-# Verbose-only helpers (silent unless DOTFILES_VERBOSE=true):
-#   _dotfiles_log_debug     low-priority trace         stdout
-#   _dotfiles_log_info      normal info                stdout
-#   _dotfiles_log_dim       indented detail            stdout
-#   _dotfiles_log_success   operation succeeded        stdout
+#   Tier 2 — Verbose-only (silent unless DOTFILES_VERBOSE=true)
+#     _dotfiles_log_debug     low-priority trace               stdout
+#     _dotfiles_log_info      normal info                      stdout
+#     _dotfiles_log_dim       indented detail                  stdout
+#     _dotfiles_log_success   operation succeeded              stdout
 #
-# Shell startup uses ONLY the verbose-only helpers, so a normal shell start
-# produces zero stdout. The CLI uses step/summary/warning/error for visible
-# progress without requiring verbose mode.
+# Shell startup uses ONLY verbose-only helpers → normal shell start is silent.
+# CLI commands use always-print helpers → useful output without -v flag.
+# Pass DOTFILES_VERBOSE=true (or -v) to add deep diagnostic depth (Tier 2).
 # =============================================================================
 
 # Re-source guard
@@ -103,4 +103,12 @@ _dotfiles_log_warning() {
 
 _dotfiles_log_error() {
     printf '%b%s%b %b%b%s%b\n' "$_DF_RED" "$_DF_CROSS" "$_DF_RESET" "$_DF_BOLD" "$_DF_RED" "$*" "$_DF_RESET" >&2
+}
+
+_dotfiles_log_detail() {
+    printf '%b%s%b %b%s%b\n' "$_DF_CYAN" "$_DF_BULLET" "$_DF_RESET" "$_DF_WHITE" "$*" "$_DF_RESET"
+}
+
+_dotfiles_log_result() {
+    printf '  %b%s:%b %b%s%b\n' "$_DF_GRAY" "$1" "$_DF_RESET" "$_DF_WHITE" "$2" "$_DF_RESET"
 }
