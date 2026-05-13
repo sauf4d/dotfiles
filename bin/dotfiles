@@ -38,7 +38,13 @@ sed_inplace() {
     [[ "$(get_os_type)" == "Darwin" ]] && sed -i '' "$@" "$file" || sed -i "$@" "$file"
 }
 
-# Extract value from config line (format: export VAR="value" or export VAR=value)
+# Extract value from a saved config line. Handles three forms:
+#   export VAR=value
+#   export VAR="value"
+#   export VAR="${VAR:-default}"   # env-override pattern from save_config
+#
+# For the third form, env-passed values win and the embedded default is used as
+# fallback. Without this branch the literal pattern would be exported verbatim.
 extract_config_value() {
     local var_name="$1"
     local config_file="$2"
@@ -53,6 +59,17 @@ extract_config_value() {
     local value="${line#*=}"
     while [[ "${value:0:1}" == '"' || "${value:0:1}" == "'" ]]; do value="${value:1}"; done
     while [[ "${value: -1:1}" == '"' || "${value: -1:1}" == "'" ]]; do value="${value%?}"; done
+
+    # Resolve ${SAME_VAR:-default} fallback syntax safely (no eval).
+    if [[ "$value" == '${'"$var_name"':-'*'}' ]]; then
+        local env_val="${!var_name:-}"
+        if [[ -n "$env_val" ]]; then
+            value="$env_val"
+        else
+            value="${value#'${'"$var_name"':-'}"
+            value="${value%'}'}"
+        fi
+    fi
 
     [[ -n "$value" ]] && echo "$value"
 }
@@ -1042,18 +1059,22 @@ show_menu() {
 
     echo
     echo -e "${BOLD}${WHITE}Available Actions:${RESET}"
-    echo -e "  ${CYAN}1)${RESET} Install/Update dotfiles"
-    echo -e "  ${CYAN}2)${RESET} Change profile (minimal/server)"
-    echo -e "  ${CYAN}3)${RESET} Create/refresh symlinks only"
-    echo -e "  ${CYAN}4)${RESET} Install required packages"
-    echo -e "  ${CYAN}5)${RESET} Verify symlinks"
-    echo -e "  ${CYAN}6)${RESET} Uninstall everything"
-    echo -e "  ${CYAN}7)${RESET} Toggle verbose mode"
-    echo -e "  ${CYAN}8)${RESET} Show help"
+    echo -e "  ${CYAN}1)${RESET} Install      — symlink + packages (no git pull)"
+    echo -e "  ${CYAN}2)${RESET} Update       — git pull (stash/rebase/pop)"
+    echo -e "  ${CYAN}3)${RESET} Sync         — update + install"
+    echo -e "  ${CYAN}4)${RESET} Clean        — remove orphaned symlinks (dry-run)"
+    echo -e "  ${CYAN}5)${RESET} Doctor       — read-only health check"
+    echo -e "  ${CYAN}6)${RESET} Link         — create/refresh symlinks only"
+    echo -e "  ${CYAN}7)${RESET} Packages     — install packages for active profile"
+    echo -e "  ${CYAN}8)${RESET} Verify       — verify all symlinks"
+    echo -e "  ${CYAN}9)${RESET} Profile      — change active profile"
+    echo -e "  ${CYAN}u)${RESET} Uninstall    — remove all symlinks and dotfiles"
+    echo -e "  ${CYAN}t)${RESET} Toggle verbose mode"
+    echo -e "  ${CYAN}h)${RESET} Help"
     echo -e "  ${CYAN}q)${RESET} Quit"
 
     echo
-    echo -n "Choose an option [1-8,q]: "
+    echo -n "Choose an option [1-9,u,t,h,q]: "
 }
 
 interactive_menu() {
@@ -1069,6 +1090,39 @@ interactive_menu() {
                 with_menu_output install_dotfiles
                 ;;
             2)
+                with_menu_output update_dotfiles
+                echo -e "\n${GRAY}Press Enter to continue...${RESET}"
+                read -r
+                ;;
+            3)
+                with_menu_output sync_dotfiles
+                ;;
+            4)
+                with_menu_output clean_dotfiles
+                echo -e "\n${GRAY}Press Enter to continue...${RESET}"
+                read -r
+                ;;
+            5)
+                doctor_dotfiles
+                echo -e "\n${GRAY}Press Enter to continue...${RESET}"
+                read -r
+                ;;
+            6)
+                with_menu_output create_symlinks
+                echo -e "\n${GRAY}Press Enter to continue...${RESET}"
+                read -r
+                ;;
+            7)
+                with_menu_output install_packages
+                echo -e "\n${GRAY}Press Enter to continue...${RESET}"
+                read -r
+                ;;
+            8)
+                with_menu_output verify_all
+                echo -e "\n${GRAY}Press Enter to continue...${RESET}"
+                read -r
+                ;;
+            9)
                 echo -n "Enter new profile (minimal/server): "
                 read -r new_profile
                 if validate_profile "$new_profile" 2>/dev/null; then
@@ -1078,28 +1132,12 @@ interactive_menu() {
                 fi
                 sleep 2
                 ;;
-            3)
-                with_menu_output create_symlinks
-                with_menu_output verify_all
-                echo -e "\n${GRAY}Press Enter to continue...${RESET}"
-                read -r
-                ;;
-            4)
-                with_menu_output install_packages
-                echo -e "\n${GRAY}Press Enter to continue...${RESET}"
-                read -r
-                ;;
-            5)
-                with_menu_output verify_all
-                echo -e "\n${GRAY}Press Enter to continue...${RESET}"
-                read -r
-                ;;
-            6)
+            u)
                 with_menu_output uninstall_dotfiles && exit 0
                 echo -e "\n${GRAY}Press Enter to continue...${RESET}"
                 read -r
                 ;;
-            7)
+            t)
                 # Toggle verbose mode (for zshrc sourcing only)
                 if is_verbose; then
                     export DOTFILES_VERBOSE="false"
@@ -1111,7 +1149,7 @@ interactive_menu() {
                 save_config
                 sleep 2
                 ;;
-            8)
+            h)
                 echo
                 echo -e "${BOLD}${MAGENTA}Help - Dotfiles Manager${RESET}"
                 echo
@@ -1122,7 +1160,7 @@ interactive_menu() {
                 echo
                 echo -e "${BOLD}${WHITE}Profiles:${RESET}"
                 echo -e "  ${YELLOW}minimal${RESET}  - Shell essentials (sheldon, tmux)"
-                echo -e "  ${YELLOW}server${RESET}   - Shell + utilities + mise version manager"
+                echo -e "  ${YELLOW}server${RESET}   - Shell + utilities + vfox version manager"
                 echo
                 echo -e "${BOLD}${WHITE}Environment Variables:${RESET}"
                 echo -e "  ${CYAN}DOTFILES_ROOT${RESET}     - Installation directory"
