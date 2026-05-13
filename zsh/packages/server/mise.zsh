@@ -30,10 +30,14 @@ pkg_post_install() {
 }
 
 pkg_init() {
-    # Guard: don't re-activate mise if already loaded (e.g. source ~/.zshrc)
     [[ "${_DOTFILES_MISE_LOADED:-}" == "1" ]] && return 0
 
-    eval "$(mise activate zsh)"
+    # Use shims for PATH management — works in interactive shells, scripts,
+    # cron jobs, and non-interactive environments without hook overhead.
+    local shims_dir="${MISE_DATA_DIR:-$HOME/.local/share/mise}/shims"
+    if [[ -d "$shims_dir" && ":$PATH:" != *":$shims_dir:"* ]]; then
+        export PATH="$shims_dir:$PATH"
+    fi
 
     export _DOTFILES_MISE_LOADED="1"
 }
