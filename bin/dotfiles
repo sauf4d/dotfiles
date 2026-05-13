@@ -841,6 +841,183 @@ uninstall_dotfiles() {
 }
 
 # =============================================================================
+# Clean — safe symlink + leftover cleanup
+# =============================================================================
+# Algorithm guarantees:
+#   1. Only touches symlinks — never files or directories
+#   2. Only removes links whose target points INTO the dotfiles repo
+#      (user's own symlinks to other locations are never touched)
+#   3. Only removes links whose target is missing (active links stay)
+#   4. mise leftovers (~/.local/share/mise etc.) → hint only, never auto-delete
+#   5. Dry-run by default; --force required to apply
+clean_dotfiles() {
+    local force=false
+    [[ "${1:-}" == "--force" ]] && force=true
+
+    cd "$DOTFILES_ROOT" 2>/dev/null || {
+        _dotfiles_log_error "DOTFILES_ROOT not accessible: $DOTFILES_ROOT"
+        return 1
+    }
+
+    show_section "Clean"
+    if $force; then
+        _dotfiles_log_step "Removing orphaned symlinks and stale state"
+    else
+        _dotfiles_log_step "Scanning for orphaned state (dry-run)"
+        _dotfiles_log_dim "Pass --force to actually apply removals."
+    fi
+
+    # (dir, max-depth) — restrict $HOME to direct children so links also seen
+    # under $HOME/.config etc. don't double-count.
+    local scan_specs=("$HOME/.config:2" "$HOME/.claude:2" "$HOME:1")
+    local found=0 removed=0
+    local link target resolved dir maxdepth
+
+    for spec in "${scan_specs[@]}"; do
+        dir="${spec%:*}"
+        maxdepth="${spec#*:}"
+        [[ -d "$dir" ]] || continue
+        while IFS= read -r link; do
+            target="$(readlink "$link" 2>/dev/null)" || continue
+            resolved="$(cd "$(dirname "$link")" 2>/dev/null && readlink -f "$link" 2>/dev/null || true)"
+
+            # Skip anything that doesn't point into our repo
+            if [[ "$target" != "$DOTFILES_ROOT"* && "$resolved" != "$DOTFILES_ROOT"* ]]; then
+                continue
+            fi
+
+            # Active link — target exists. Leave it alone.
+            [[ -e "$resolved" ]] && continue
+
+            ((found++))
+            if $force; then
+                if rm "$link" 2>/dev/null; then
+                    ((removed++))
+                    _dotfiles_log_success "Removed: $link → $target"
+                else
+                    _dotfiles_log_warning "Failed to remove: $link"
+                fi
+            else
+                _dotfiles_log_info "Would remove: $link → $target"
+            fi
+        done < <(find "$dir" -mindepth 1 -maxdepth "$maxdepth" -type l 2>/dev/null)
+    done
+
+    # mise leftover detection — hint only
+    if [[ -d "$HOME/.local/share/mise" || -d "$HOME/.config/mise" ]]; then
+        _dotfiles_log_warning "Leftover mise state at ~/.local/share/mise or ~/.config/mise"
+        _dotfiles_log_warning "vfox now manages SDKs. If your tools work, remove manually:"
+        _dotfiles_log_dim "  rm -rf ~/.local/share/mise ~/.config/mise"
+    fi
+
+    if [[ $found -eq 0 ]]; then
+        _dotfiles_log_summary "Nothing to clean"
+    elif $force; then
+        _dotfiles_log_summary "Removed $removed of $found orphaned symlink(s)"
+    else
+        _dotfiles_log_summary "Found $found orphaned symlink(s). Re-run with --force to apply."
+    fi
+}
+
+# =============================================================================
+# Doctor — read-only diagnostics
+# =============================================================================
+# Reports health of: required tools, symlinks, package install status,
+# PATH sanity, vfox SDK availability. Never modifies state.
+# Exit code = number of issues found (0 = healthy).
+doctor_dotfiles() {
+    local issues=0
+
+    show_section "Doctor"
+
+    # 1. Required tools
+    _dotfiles_log_step "Checking required tools"
+    local tool
+    for tool in git curl zsh; do
+        if command -v "$tool" >/dev/null 2>&1; then
+            _dotfiles_log_info "$tool: $(command -v "$tool")"
+        else
+            _dotfiles_log_error "$tool not found in PATH"
+            ((issues++))
+        fi
+    done
+
+    # 2. Repository state
+    _dotfiles_log_step "Checking repository"
+    if [[ -d "$DOTFILES_ROOT/.git" ]]; then
+        local head_sha branch dirty="clean"
+        head_sha="$(git -C "$DOTFILES_ROOT" rev-parse --short HEAD 2>/dev/null || echo "?")"
+        branch="$(git -C "$DOTFILES_ROOT" symbolic-ref --short HEAD 2>/dev/null || echo "detached")"
+        if ! git -C "$DOTFILES_ROOT" diff --quiet HEAD 2>/dev/null; then
+            dirty="dirty"
+        fi
+        _dotfiles_log_info "$DOTFILES_ROOT @ $branch $head_sha ($dirty)"
+    else
+        _dotfiles_log_error "Not a git repository: $DOTFILES_ROOT"
+        ((issues++))
+    fi
+
+    # 3. Symlink integrity — count broken/orphaned (don't print each)
+    _dotfiles_log_step "Checking symlinks"
+    local broken=0
+    # Same (dir:maxdepth) specs as clean_dotfiles for consistent scan coverage
+    local scan_specs=("$HOME/.config:2" "$HOME/.claude:2" "$HOME:1")
+    local link resolved dir maxdepth spec
+    for spec in "${scan_specs[@]}"; do
+        dir="${spec%:*}"
+        maxdepth="${spec#*:}"
+        [[ -d "$dir" ]] || continue
+        while IFS= read -r link; do
+            resolved="$(cd "$(dirname "$link")" 2>/dev/null && readlink -f "$link" 2>/dev/null || true)"
+            if [[ "$resolved" == "$DOTFILES_ROOT"* ]] && [[ ! -e "$resolved" ]]; then
+                ((broken++))
+            fi
+        done < <(find "$dir" -mindepth 1 -maxdepth "$maxdepth" -type l 2>/dev/null)
+    done
+    if [[ $broken -eq 0 ]]; then
+        _dotfiles_log_info "All managed symlinks resolve"
+    else
+        _dotfiles_log_warning "$broken orphaned symlink(s) — run 'dotfiles clean'"
+        ((issues++))
+    fi
+
+    # 4. mise leftovers
+    _dotfiles_log_step "Checking for stale version manager state"
+    if [[ -d "$HOME/.local/share/mise" || -d "$HOME/.config/mise" ]]; then
+        _dotfiles_log_warning "mise leftovers detected — run 'dotfiles clean' for cleanup hint"
+        ((issues++))
+    else
+        _dotfiles_log_info "No mise leftovers"
+    fi
+
+    # 5. vfox status (server profile only)
+    if [[ "${DOTFILES_PROFILE:-}" == "server" ]]; then
+        _dotfiles_log_step "Checking vfox SDKs"
+        if command -v vfox >/dev/null 2>&1; then
+            _dotfiles_log_info "vfox: $(vfox --version 2>&1 | head -1)"
+            local sdks_file="${XDG_CONFIG_HOME:-$HOME/.config}/vfox/sdks"
+            if [[ -f "$sdks_file" ]]; then
+                _dotfiles_log_info "SDK manifest: $sdks_file"
+            else
+                _dotfiles_log_warning "SDK manifest missing: $sdks_file"
+                ((issues++))
+            fi
+        else
+            _dotfiles_log_warning "vfox not installed — run 'dotfiles install'"
+            ((issues++))
+        fi
+    fi
+
+    echo
+    if [[ $issues -eq 0 ]]; then
+        _dotfiles_log_summary "Healthy — 0 issues"
+    else
+        _dotfiles_log_summary "Found $issues issue(s)"
+    fi
+    return $issues
+}
+
+# =============================================================================
 # Interactive Menu
 # =============================================================================
 show_menu() {
@@ -981,6 +1158,10 @@ COMMANDS:
   update      Pull latest changes (auto-stash + rebase + pop).
               Aborts cleanly on conflict, preserving local changes in stash.
   sync        Shortcut for: update && install
+  clean       Remove orphaned symlinks pointing into the repo (dry-run default).
+              Pass --force to apply. Never touches user-created symlinks.
+  doctor      Read-only health check: tools, repo, symlinks, vfox SDKs.
+              Exit code = number of issues.
   uninstall   Remove all symlinks, packages config, and the dotfiles directory
   link        Create or refresh symlinks only
   profile     Change active profile (minimal | server)
@@ -1052,6 +1233,12 @@ parse_args() {
             ;;
         sync)
             with_menu_output sync_dotfiles
+            ;;
+        clean)
+            with_menu_output clean_dotfiles "${2:-}"
+            ;;
+        doctor)
+            doctor_dotfiles
             ;;
         uninstall)
             with_menu_output uninstall_dotfiles
