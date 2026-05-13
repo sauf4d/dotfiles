@@ -97,6 +97,8 @@ else
     _dotfiles_log_dim()     { :; }
     _dotfiles_log_success() { :; }
     _dotfiles_log_step()    { echo "→ $*"; }
+    _dotfiles_log_detail()  { echo "• $*"; }
+    _dotfiles_log_result()  { echo "  $1: $2"; }
     _dotfiles_log_summary() { echo "✓ $*"; }
     _dotfiles_log_warning() { echo "⚠  $*" >&2; }
     _dotfiles_log_error()   { echo "✗ $*" >&2; }
@@ -113,16 +115,6 @@ readonly ARROW="$_DF_ARROW" BULLET="$_DF_BULLET"
 
 is_verbose() {
     [[ "${DOTFILES_VERBOSE:-$DEFAULT_VERBOSE}" == "true" ]]
-}
-
-# Run a command with verbose output enabled (for menu operations)
-with_menu_output() {
-    local original_verbose="${DOTFILES_VERBOSE:-$DEFAULT_VERBOSE}"
-    export DOTFILES_VERBOSE="true"
-    "$@"
-    local result=$?
-    export DOTFILES_VERBOSE="$original_verbose"
-    return $result
 }
 
 # =============================================================================
@@ -156,9 +148,8 @@ show_banner() {
     echo
 }
 
-# Show section header (only in verbose mode)
+# Show section header (always-print — CLI progress marker)
 show_section() {
-    is_verbose || return 0
     echo; echo -e "${BOLD}${MAGENTA}◆ $1${RESET}"
     echo -e "${GRAY}────────────────────────────────────────────────────────────────${RESET}"
 }
@@ -299,7 +290,7 @@ clone_repository_if_missing() {
         _dotfiles_log_error "Repository URL not specified (set DOTFILES_REPO)"
         return 1
     fi
-    is_verbose && _dotfiles_log_dim "Source: $DOTFILES_REPO"
+    _dotfiles_log_detail "Source: $DOTFILES_REPO"
 
     git clone "$DOTFILES_REPO" "$DOTFILES_ROOT" >/dev/null 2>&1 || {
         _dotfiles_log_error "Failed to clone $DOTFILES_REPO"
@@ -308,7 +299,7 @@ clone_repository_if_missing() {
     cd "$DOTFILES_ROOT"
     local head_sha
     head_sha="$(git -C "$DOTFILES_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
-    _dotfiles_log_success "Repository cloned at $DOTFILES_ROOT (HEAD: $head_sha)"
+    _dotfiles_log_detail "Repository cloned at $DOTFILES_ROOT (HEAD: $head_sha)"
 }
 
 # -----------------------------------------------------------------------------
@@ -360,7 +351,7 @@ update_dotfiles() {
         git stash store -m "dotfiles auto-stash $(date '+%Y-%m-%d %H:%M:%S')" "$stash_ref" >/dev/null 2>&1
         git reset --hard HEAD >/dev/null 2>&1
         git clean -fd >/dev/null 2>&1
-        _dotfiles_log_info "Local changes stashed (stash@{0})"
+        _dotfiles_log_detail "Local changes stashed (stash@{0})"
     fi
 
     # Pull with rebase — do NOT silence the error, let user see git's diagnostic
@@ -891,7 +882,7 @@ clean_dotfiles() {
         _dotfiles_log_step "Removing orphaned symlinks and stale state"
     else
         _dotfiles_log_step "Scanning for orphaned state (dry-run)"
-        _dotfiles_log_dim "Pass --force to actually apply removals."
+        _dotfiles_log_detail "Pass --force to actually apply removals."
     fi
 
     # (dir, max-depth) — restrict $HOME to direct children so links also seen
@@ -925,7 +916,7 @@ clean_dotfiles() {
                     _dotfiles_log_warning "Failed to remove: $link"
                 fi
             else
-                _dotfiles_log_info "Would remove: $link → $target"
+                _dotfiles_log_detail "Would remove: $link → $target"
             fi
         done < <(find "$dir" -mindepth 1 -maxdepth "$maxdepth" -type l 2>/dev/null)
     done
@@ -962,7 +953,7 @@ doctor_dotfiles() {
     local tool
     for tool in git curl zsh; do
         if command -v "$tool" >/dev/null 2>&1; then
-            _dotfiles_log_info "$tool: $(command -v "$tool")"
+            _dotfiles_log_result "$tool" "$(command -v "$tool")"
         else
             _dotfiles_log_error "$tool not found in PATH"
             ((issues++))
@@ -978,7 +969,7 @@ doctor_dotfiles() {
         if ! git -C "$DOTFILES_ROOT" diff --quiet HEAD 2>/dev/null; then
             dirty="dirty"
         fi
-        _dotfiles_log_info "$DOTFILES_ROOT @ $branch $head_sha ($dirty)"
+        _dotfiles_log_result "repo" "$DOTFILES_ROOT @ $branch $head_sha ($dirty)"
     else
         _dotfiles_log_error "Not a git repository: $DOTFILES_ROOT"
         ((issues++))
@@ -1002,7 +993,7 @@ doctor_dotfiles() {
         done < <(find "$dir" -mindepth 1 -maxdepth "$maxdepth" -type l 2>/dev/null)
     done
     if [[ $broken -eq 0 ]]; then
-        _dotfiles_log_info "All managed symlinks resolve"
+        _dotfiles_log_detail "All managed symlinks resolve"
     else
         _dotfiles_log_warning "$broken orphaned symlink(s) — run 'dotfiles clean'"
         ((issues++))
@@ -1014,17 +1005,17 @@ doctor_dotfiles() {
         _dotfiles_log_warning "mise leftovers detected — run 'dotfiles clean' for cleanup hint"
         ((issues++))
     else
-        _dotfiles_log_info "No mise leftovers"
+        _dotfiles_log_detail "No mise leftovers"
     fi
 
     # 5. vfox status (server profile only)
     if [[ "${DOTFILES_PROFILE:-}" == "server" ]]; then
         _dotfiles_log_step "Checking vfox SDKs"
         if command -v vfox >/dev/null 2>&1; then
-            _dotfiles_log_info "vfox: $(vfox --version 2>&1 | head -1)"
+            _dotfiles_log_result "vfox" "$(vfox --version 2>&1 | head -1)"
             local sdks_file="${XDG_CONFIG_HOME:-$HOME/.config}/vfox/sdks"
             if [[ -f "$sdks_file" ]]; then
-                _dotfiles_log_info "SDK manifest: $sdks_file"
+                _dotfiles_log_result "manifest" "$sdks_file"
             else
                 _dotfiles_log_warning "SDK manifest missing: $sdks_file"
                 ((issues++))
@@ -1090,18 +1081,18 @@ interactive_menu() {
 
         case "$choice" in
             1)
-                with_menu_output install_dotfiles
+                install_dotfiles
                 ;;
             2)
-                with_menu_output update_dotfiles
+                update_dotfiles
                 echo -e "\n${GRAY}Press Enter to continue...${RESET}"
                 read -r
                 ;;
             3)
-                with_menu_output sync_dotfiles
+                sync_dotfiles
                 ;;
             4)
-                with_menu_output clean_dotfiles
+                clean_dotfiles
                 echo -e "\n${GRAY}Press Enter to continue...${RESET}"
                 read -r
                 ;;
@@ -1111,17 +1102,17 @@ interactive_menu() {
                 read -r
                 ;;
             6)
-                with_menu_output create_symlinks
+                create_symlinks
                 echo -e "\n${GRAY}Press Enter to continue...${RESET}"
                 read -r
                 ;;
             7)
-                with_menu_output install_packages
+                install_packages
                 echo -e "\n${GRAY}Press Enter to continue...${RESET}"
                 read -r
                 ;;
             8)
-                with_menu_output verify_all
+                verify_all
                 echo -e "\n${GRAY}Press Enter to continue...${RESET}"
                 read -r
                 ;;
@@ -1136,7 +1127,7 @@ interactive_menu() {
                 sleep 2
                 ;;
             u)
-                with_menu_output uninstall_dotfiles && exit 0
+                uninstall_dotfiles && exit 0
                 echo -e "\n${GRAY}Press Enter to continue...${RESET}"
                 read -r
                 ;;
@@ -1273,35 +1264,35 @@ parse_args() {
             if is_interactive && [[ -z "$command" ]]; then
                 interactive_menu
             else
-                with_menu_output install_dotfiles
+                install_dotfiles
             fi
             ;;
         update)
-            with_menu_output update_dotfiles
+            update_dotfiles
             ;;
         sync)
-            with_menu_output sync_dotfiles
+            sync_dotfiles
             ;;
         clean)
-            with_menu_output clean_dotfiles "${2:-}"
+            clean_dotfiles "${2:-}"
             ;;
         doctor)
             doctor_dotfiles
             ;;
         uninstall)
-            with_menu_output uninstall_dotfiles
+            uninstall_dotfiles
             ;;
         link)
-            with_menu_output create_symlinks
+            create_symlinks
             ;;
         profile)
             handle_profile_command "${2:-}"
             ;;
         packages)
-            with_menu_output install_packages
+            install_packages
             ;;
         verify)
-            with_menu_output verify_all
+            verify_all
             ;;
         version)
             show_version
