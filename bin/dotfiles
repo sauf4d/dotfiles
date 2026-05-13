@@ -255,53 +255,115 @@ is_fresh_install() {
     [[ ! -d "$DOTFILES_ROOT/.git" ]]
 }
 
-setup_repository() {
-    # Always show progress, detailed section only in verbose mode
-    show_section "Repository Management"
-
-    if is_fresh_install; then
-        # INSTALL: Clone the repository
-        _dotfiles_log_step "Installing dotfiles (fresh installation)..."
-        is_verbose && _dotfiles_log_step "Cloning repository"
-        if [[ -z "$DOTFILES_REPO" ]]; then
-            _dotfiles_log_error "Repository URL not specified"
-            return 1
-        fi
-        is_verbose && _dotfiles_log_dim "Downloading from $DOTFILES_REPO..."
-        git clone "$DOTFILES_REPO" "$DOTFILES_ROOT" >/dev/null 2>&1 || {
-            _dotfiles_log_error "Failed to clone repository"
-            return 1
-        }
-        cd "$DOTFILES_ROOT"
-        local head_sha
-        head_sha="$(git -C "$DOTFILES_ROOT" rev-parse HEAD 2>/dev/null || echo "unknown")"
-        _dotfiles_log_success "Repository cloned at $DOTFILES_ROOT (HEAD: $head_sha)"
-        _dotfiles_log_debug "Verify this commit at: $DOTFILES_REPO"
-    else
-        # UPDATE: Fast-forward only pull (never creates merge commits)
-        _dotfiles_log_step "Updating dotfiles (pulling latest changes)..."
-        cd "$DOTFILES_ROOT"
-
-        # Abort if working tree is dirty — user must resolve first
-        if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
-            _dotfiles_log_error "Local changes detected. Commit or stash them before updating."
-            return 1
-        fi
-
-        local current_branch
-        current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-        is_verbose && _dotfiles_log_dim "Current branch: $current_branch"
-
-        local remote_branch="${DOTFILES_BRANCH:-$current_branch}"
-        is_verbose && _dotfiles_log_dim "Pulling from origin/$remote_branch (--ff-only)..."
-
-        git pull --ff-only origin "$remote_branch" >/dev/null 2>&1 || {
-            _dotfiles_log_error "Failed to pull — non-fast-forward or network error. Check 'git status' and try again."
-            return 1
-        }
-
-        _dotfiles_log_success "Repository updated at $DOTFILES_ROOT"
+clone_repository_if_missing() {
+    # Only used during install. Update is a separate command (no git in install).
+    if ! is_fresh_install; then
+        _dotfiles_log_debug "Repository already at $DOTFILES_ROOT (skip clone)"
+        return 0
     fi
+
+    show_section "Repository Setup"
+    _dotfiles_log_step "Cloning dotfiles repository"
+
+    if [[ -z "$DOTFILES_REPO" ]]; then
+        _dotfiles_log_error "Repository URL not specified (set DOTFILES_REPO)"
+        return 1
+    fi
+    is_verbose && _dotfiles_log_dim "Source: $DOTFILES_REPO"
+
+    git clone "$DOTFILES_REPO" "$DOTFILES_ROOT" >/dev/null 2>&1 || {
+        _dotfiles_log_error "Failed to clone $DOTFILES_REPO"
+        return 1
+    }
+    cd "$DOTFILES_ROOT"
+    local head_sha
+    head_sha="$(git -C "$DOTFILES_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+    _dotfiles_log_success "Repository cloned at $DOTFILES_ROOT (HEAD: $head_sha)"
+}
+
+# -----------------------------------------------------------------------------
+# Update flow — git-only, safe stash/rebase/pop. Separate from install so that
+# install never fails on a dirty working tree, and updates have a clear recovery
+# path on conflict.
+# -----------------------------------------------------------------------------
+update_dotfiles() {
+    if [[ ! -d "$DOTFILES_ROOT/.git" ]]; then
+        _dotfiles_log_error "Not a git repository: $DOTFILES_ROOT"
+        _dotfiles_log_dim "Run 'dotfiles install' first to clone the repo."
+        return 1
+    fi
+    cd "$DOTFILES_ROOT" || return 1
+
+    # Pre-flight: abort if mid-rebase or mid-merge — user must resolve manually
+    if [[ -d .git/rebase-merge || -d .git/rebase-apply ]]; then
+        _dotfiles_log_error "Repository is mid-rebase. Resolve before updating."
+        _dotfiles_log_dim "Use 'git rebase --continue' or 'git rebase --abort'"
+        return 1
+    fi
+    if [[ -f .git/MERGE_HEAD ]]; then
+        _dotfiles_log_error "Repository is mid-merge. Resolve before updating."
+        _dotfiles_log_dim "Use 'git merge --abort' or commit the merge."
+        return 1
+    fi
+
+    # Pre-flight: must be on a branch (not detached HEAD)
+    local branch
+    branch="$(git symbolic-ref --short HEAD 2>/dev/null)" || {
+        _dotfiles_log_error "Detached HEAD — checkout a branch before updating."
+        return 1
+    }
+    local remote_branch="${DOTFILES_BRANCH:-$branch}"
+
+    _dotfiles_log_step "Updating dotfiles (branch: $branch)"
+
+    # Detect dirty state: tracked changes OR untracked files
+    local was_dirty=false stash_ref=""
+    if ! git diff --quiet HEAD 2>/dev/null || \
+       [[ -n "$(git ls-files --others --exclude-standard 2>/dev/null)" ]]; then
+        was_dirty=true
+        # `git stash create` returns commit SHA without touching refs
+        stash_ref="$(git stash create -u 2>/dev/null)"
+        if [[ -z "$stash_ref" ]]; then
+            _dotfiles_log_error "Failed to create stash for local changes"
+            return 1
+        fi
+        git stash store -m "dotfiles auto-stash $(date '+%Y-%m-%d %H:%M:%S')" "$stash_ref" >/dev/null 2>&1
+        git reset --hard HEAD >/dev/null 2>&1
+        git clean -fd >/dev/null 2>&1
+        _dotfiles_log_info "Local changes stashed (stash@{0})"
+    fi
+
+    # Pull with rebase — do NOT silence the error, let user see git's diagnostic
+    if ! git pull --rebase origin "$remote_branch"; then
+        git rebase --abort 2>/dev/null
+        _dotfiles_log_error "Pull failed (see git output above)"
+        if $was_dirty; then
+            _dotfiles_log_warning "Your local changes are preserved in stash@{0}"
+            _dotfiles_log_warning "Recovery: git stash list  →  git stash pop"
+        fi
+        return 1
+    fi
+
+    # Restore local changes if we stashed them
+    if $was_dirty; then
+        if ! git stash pop 2>/dev/null; then
+            _dotfiles_log_warning "Conflicts while restoring local changes"
+            _dotfiles_log_warning "Stashed changes remain in stash@{0}. Resolve with:"
+            _dotfiles_log_dim "  git stash show -p stash@{0}    # preview"
+            _dotfiles_log_dim "  git stash pop                  # retry (will conflict again)"
+            _dotfiles_log_dim "  git checkout --theirs <file>   # take stash version"
+            return 1
+        fi
+    fi
+
+    _dotfiles_log_summary "Updated to $(git rev-parse --short HEAD). Run: dotfiles install (or 'dotfiles sync')"
+}
+
+# -----------------------------------------------------------------------------
+# Sync — update + reinstall in one go
+# -----------------------------------------------------------------------------
+sync_dotfiles() {
+    update_dotfiles && install_dotfiles
 }
 
 # =============================================================================
@@ -648,8 +710,8 @@ install_dotfiles() {
     # Step 1: Setup environment (load config, set defaults)
     setup_environment
 
-    # Step 2: Clone or update the repository
-    setup_repository || {
+    # Step 2: Clone the repository if missing (no git pull — use 'dotfiles update')
+    clone_repository_if_missing || {
         _dotfiles_log_error "Failed to setup repository"
         return 1
     }
@@ -913,27 +975,30 @@ USAGE:
   $SCRIPT_NAME [COMMAND] [OPTIONS]
 
 COMMANDS:
-  install     Install or update dotfiles (default)
-              • Fresh install: clone repo, link files, install packages, start new shell
-              • Update: hard reset + pull with rebase, relink files, start new shell
-  uninstall   Remove all dotfiles and configuration
+  install     Symlink configs and install packages (default).
+              Does NOT pull from git — safe to run on a dirty working tree.
+              For fresh machines: clones the repo first.
+  update      Pull latest changes (auto-stash + rebase + pop).
+              Aborts cleanly on conflict, preserving local changes in stash.
+  sync        Shortcut for: update && install
+  uninstall   Remove all symlinks, packages config, and the dotfiles directory
   link        Create or refresh symlinks only
-  profile     Change profile (minimal/server)
+  profile     Change active profile (minimal | server)
   packages    Install required packages for current profile
-  verify      Verify all symlinks are working
+  verify      Verify all symlinks resolve correctly
   version     Show version information
   help        Show this help message
 
 OPTIONS:
-  -v, --verbose    Enable verbose output (affects shell startup only)
-                   Note: dotfiles menu always shows detailed output
+  -v, --verbose    Enable verbose output (shell startup + CLI details)
   -h, --help       Show this help message
 
 EXAMPLES:
-  $SCRIPT_NAME                    # Interactive installation
-  $SCRIPT_NAME install            # Install/update dotfiles
-  $SCRIPT_NAME profile server     # Change to server profile
-  $SCRIPT_NAME verify             # Check symlink status
+  $SCRIPT_NAME                    # Interactive menu
+  $SCRIPT_NAME install            # Symlinks + packages (no git)
+  $SCRIPT_NAME update             # Pull latest (safe on dirty tree)
+  $SCRIPT_NAME sync               # Pull + reinstall
+  $SCRIPT_NAME profile server     # Switch to server profile
   DOTFILES_PROFILE=server $SCRIPT_NAME install
 
 For more information, visit: $DOCS_URL
@@ -981,6 +1046,12 @@ parse_args() {
             else
                 with_menu_output install_dotfiles
             fi
+            ;;
+        update)
+            with_menu_output update_dotfiles
+            ;;
+        sync)
+            with_menu_output sync_dotfiles
             ;;
         uninstall)
             with_menu_output uninstall_dotfiles
