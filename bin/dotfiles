@@ -616,7 +616,7 @@ install_packages() {
             ;;
         server)
             echo -e "  ${CYAN}${BULLET}${RESET} tmux, sheldon (minimal)"
-            echo -e "  ${CYAN}${BULLET}${RESET} bat, fzf, eza, fd, jq, ripgrep, tealdeer, zoxide, mise"
+            echo -e "  ${CYAN}${BULLET}${RESET} bat, fzf, eza, fd, jq, ripgrep, tealdeer, zoxide, vfox"
             ;;
     esac
 
@@ -684,7 +684,7 @@ install_dotfiles() {
                 echo -e "  ${GREEN}${CHECK}${RESET} Shell essentials (zsh, sheldon, tmux)"
                 ;;
             server)
-                echo -e "  ${GREEN}${CHECK}${RESET} Shell + utilities + mise version manager"
+                echo -e "  ${GREEN}${CHECK}${RESET} Shell + utilities + vfox version manager"
                 ;;
         esac
     else

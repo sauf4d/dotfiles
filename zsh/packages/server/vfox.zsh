@@ -3,20 +3,9 @@
 PKG_NAME="vfox"
 PKG_DESC="Cross-platform SDK version manager (Unix/macOS/Windows native)"
 
-# Declarative SDK list. Edit this array to add/remove managed runtimes.
-# Format: "<plugin-name>@<version-spec>" — vfox does not accept "lts" / "latest"
-# aliases, pin to concrete versions.
-#
-# Official plugins (version-fox/*):   nodejs, golang, python
-# Community plugins (third-party):    bun
-# Rust: use rustup directly — vfox-rust community plugin has reliability issues
-# and rustup is the canonical Rust toolchain manager.
-typeset -ga VFOX_PLUGINS=(
-    "nodejs@24.15.0"
-    "golang@1.26.3"
-    "python@3.14.5"
-    "bun@1.3.14"
-)
+# SDK manifest lives in config/vfox/sdks (symlinked to ~/.config/vfox/sdks).
+# Edit that file to change managed runtimes — keeps SDK versions in sync across
+# machines via the dotfiles repo.
 
 pkg_install() {
     local os pkg_mgr
@@ -42,10 +31,25 @@ pkg_install() {
 pkg_post_install() {
     command -v vfox &>/dev/null || return 0
 
-    local entry plugin version
-    for entry in "${VFOX_PLUGINS[@]}"; do
-        plugin="${entry%@*}"
-        version="${entry#*@}"
+    local sdks_file="${XDG_CONFIG_HOME:-$HOME/.config}/vfox/sdks"
+    if [[ ! -f "$sdks_file" ]]; then
+        _dotfiles_log_warning "vfox: SDK manifest not found at $sdks_file (skipping provisioning)"
+        return 0
+    fi
+
+    local line plugin version
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # Skip blank lines and comments
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        # Trim inline whitespace
+        line="${line## }"; line="${line%% }"
+        # Require plugin@version format
+        if [[ "$line" != *@* ]]; then
+            _dotfiles_log_warning "vfox: malformed manifest line (skipping): $line"
+            continue
+        fi
+        plugin="${line%@*}"
+        version="${line#*@}"
 
         if ! vfox info "$plugin" &>/dev/null; then
             _dotfiles_log_info "vfox: adding plugin $plugin"
@@ -65,7 +69,7 @@ pkg_post_install() {
         # non-interactively, so spawn an interactive zsh that auto-activates vfox.
         zsh -ic "vfox use -g $plugin@$version" &>/dev/null || \
             _dotfiles_log_warning "vfox: could not set $plugin@$version as global"
-    done
+    done < "$sdks_file"
 }
 
 pkg_init() {

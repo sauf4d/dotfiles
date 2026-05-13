@@ -5,12 +5,12 @@
 A cross-platform, profile-based zsh configuration system. Ships on macOS and common Linux
 distros. Keeps shell startup under 200ms by deferring heavy work via sheldon and idempotency guards.
 
-Three cumulative profiles:
+Two cumulative profiles:
 
 | Profile   | Tools added |
 |-----------|-------------|
 | `minimal` | tmux (+ sheldon infrastructure) |
-| `server`  | bat, eza, fd, fzf, jq, ripgrep, tealdeer, zoxide, mise |
+| `server`  | bat, eza, fd, fzf, jq, ripgrep, tealdeer, zoxide, vfox |
 
 ---
 
@@ -74,14 +74,14 @@ init_package_template "$PKG_NAME"
 | Package variables | `PKG_NAME`, `PKG_DESC`, `PKG_CMD`, `PKG_CHECK_FUNC` | — |
 | Hook functions | `pkg_init`, `pkg_install`, `pkg_pre_install`, `pkg_post_install`, `pkg_install_fallback` | — |
 | Private helpers (check) | `_<tool>_is_installed` | `_<tool>_is_installed` |
-| Load flag (idempotency) | `_DOTFILES_<TOOL>_LOADED` | `_DOTFILES_MISE_LOADED` |
+| Load flag (idempotency) | `_DOTFILES_<TOOL>_LOADED` | `_DOTFILES_VFOX_LOADED` |
 
 ---
 
 ## Idempotency Rules (Critical)
 
 Shell startup must be **safe to run multiple times** (e.g. `source ~/.zshrc` after a tool
-is already active). Any package with non-trivial `pkg_init` logic (sheldon, mise) needs
+is already active). Any package with non-trivial `pkg_init` logic (sheldon, vfox) needs
 a guard to prevent re-initialization:
 
 ```zsh
@@ -110,7 +110,7 @@ dotfiles verify
 
 # Test the version manager works correctly
 source ~/.zshrc
-mise --version   # should print version
+vfox current nodejs   # should print configured node version
 
 # Re-source safety check (should produce no errors)
 source ~/.zshrc
@@ -124,11 +124,12 @@ source ~/.zshrc
 1. **Modifying core files** — Never add tool logic to `zshrc`, `installer.zsh`, or `zsh/core/*.zsh`.
    Each tool is self-contained in its own package file.
 
-2. **Forgetting idempotency guards** — Packages with `eval` init (sheldon, mise) need
+2. **Forgetting idempotency guards** — Packages with `eval` init (sheldon, vfox) need
    a load flag guard (see above). Skipping it causes hard-to-debug re-source breakage.
+   The guard MUST NOT be exported, or `exec zsh` will inherit it and skip re-init.
 
 3. **Making `pkg_init` slow** — `pkg_init` runs synchronously at shell startup. Keep it
-   under ~5ms. Use compiled tools (like mise) that initialize quickly.
+   under ~5ms. Use compiled tools (like vfox) that initialize quickly.
 
 4. **Using `command -v` for shell-function tools** — Tools like `nvm` are not
    binaries. Set `PKG_CHECK_FUNC` to a custom function, or `command -v` will always fail.
