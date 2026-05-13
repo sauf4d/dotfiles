@@ -130,7 +130,7 @@ init_package_template() {
 
     # Not installed — warn on normal startup, full install when DOTFILES_INSTALL=true
     if [[ "${DOTFILES_INSTALL:-false}" != "true" ]]; then
-        echo "[dotfiles] ${package_name} not installed — run: dotfiles install" >&2
+        _dotfiles_log_warning "${package_name} not installed — run: dotfiles install"
         _dotfiles_cleanup_package_hooks
         return 0
     fi

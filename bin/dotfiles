@@ -205,13 +205,20 @@ save_config() {
         sed_inplace "$CONFIG_FILE" '/^# Dotfiles Configuration/d'
     fi
 
-    # Append new configuration block
+    # Append new configuration block.
+    # Escape \${VAR:-default} so the LITERAL fallback syntax lands in zshenv —
+    # this lets env-passed values (e.g. DOTFILES_VERBOSE=true) override the
+    # saved defaults at shell-startup time. Without the escape, the file would
+    # contain unconditional exports that clobber the user's env.
+    local _root="${DOTFILES_ROOT:-$DEFAULT_ROOT}"
+    local _profile="${DOTFILES_PROFILE:-$DEFAULT_PROFILE}"
+    local _verbose="${DOTFILES_VERBOSE:-$DEFAULT_VERBOSE}"
     cat >> "$CONFIG_FILE" << EOF
 
 # Dotfiles Configuration
-export DOTFILES_ROOT="${DOTFILES_ROOT:-$DEFAULT_ROOT}"
-export DOTFILES_PROFILE="${DOTFILES_PROFILE:-$DEFAULT_PROFILE}"
-export DOTFILES_VERBOSE="${DOTFILES_VERBOSE:-$DEFAULT_VERBOSE}"
+export DOTFILES_ROOT="\${DOTFILES_ROOT:-$_root}"
+export DOTFILES_PROFILE="\${DOTFILES_PROFILE:-$_profile}"
+export DOTFILES_VERBOSE="\${DOTFILES_VERBOSE:-$_verbose}"
 EOF
 
     _dotfiles_log_debug "Configuration saved to $CONFIG_FILE"
