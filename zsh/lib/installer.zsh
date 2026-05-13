@@ -4,23 +4,12 @@
 # Package lifecycle engine — check, warn, install, init
 # =============================================================================
 
-# Color constants (guard against re-sourcing)
-if [[ ! -v _DOTFILES_COLORS_LOADED ]]; then
-    readonly RED='\033[31m'     GREEN='\033[32m'   YELLOW='\033[33m'
-    readonly BLUE='\033[34m'    MAGENTA='\033[35m' CYAN='\033[36m'
-    readonly WHITE='\033[37m'   GRAY='\033[90m'    BOLD='\033[1m'
-    readonly RESET='\033[0m'
-    readonly _DOTFILES_COLORS_LOADED=1
-fi
+# Re-source guard
+[[ -n "${_DOTFILES_INSTALLER_LOADED:-}" ]] && return 0
+readonly _DOTFILES_INSTALLER_LOADED=1
 
-# -----------------------------------------------------------------------------
-# Logging — only debug/info/warning/success shown when VERBOSE=true
-# -----------------------------------------------------------------------------
-_dotfiles_log_debug()   { [[ "${DOTFILES_VERBOSE:-false}" == "true" ]] && echo -e "${MAGENTA}[VERBOSE]${RESET} ${GRAY}$*${RESET}"; }
-_dotfiles_log_info()    { [[ "${DOTFILES_VERBOSE:-false}" == "true" ]] && echo -e "${CYAN}[ INFO ]${RESET} ${WHITE}$*${RESET}"; }
-_dotfiles_log_warning() { [[ "${DOTFILES_VERBOSE:-false}" == "true" ]] && echo -e "${YELLOW}[WARNING]${RESET} ${WHITE}$*${RESET}"; }
-_dotfiles_log_success() { [[ "${DOTFILES_VERBOSE:-false}" == "true" ]] && echo -e "${GREEN}[SUCCESS]${RESET} ${WHITE}$*${RESET}"; }
-_dotfiles_log_error()   { echo -e "${RED}[ ERROR ]${RESET} ${BOLD}${WHITE}$*${RESET}" >&2; }
+# Shared logging helpers (POSIX-compatible, also sourced by bin/dotfiles)
+source "${DOTFILES_ROOT:-$HOME/.dotfiles}/zsh/lib/_log.sh"
 
 # -----------------------------------------------------------------------------
 # Package check

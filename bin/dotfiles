@@ -58,31 +58,36 @@ extract_config_value() {
 }
 
 # =============================================================================
-# Color & UI Constants
+# Shared logging — colors, glyphs, _dotfiles_log_* helpers
 # =============================================================================
-# Modern ANSI color codes - compatible with Windows Terminal, macOS Terminal, Linux
-# Using standard 16-color palette for maximum compatibility
-readonly RED='\033[31m'
-readonly GREEN='\033[32m'
-readonly YELLOW='\033[33m'
-readonly BLUE='\033[34m'
-readonly MAGENTA='\033[35m'
-readonly CYAN='\033[36m'
-readonly WHITE='\033[37m'
-readonly GRAY='\033[90m'
-readonly BOLD='\033[1m'
-readonly RESET='\033[0m'            # Reset all attributes
+# Source the POSIX log library. DOTFILES_ROOT may not be set yet (we're before
+# init_script), so fall back to a hard-coded default that matches the install
+# pattern.
+_DF_LIB="${DOTFILES_ROOT:-$HOME/.dotfiles}/zsh/lib/_log.sh"
+if [[ -f "$_DF_LIB" ]]; then
+    # shellcheck source=../zsh/lib/_log.sh
+    . "$_DF_LIB"
+else
+    # Last-resort fallback — installer not yet present (fresh-machine bootstrap)
+    _dotfiles_log_info()    { :; }
+    _dotfiles_log_debug()   { :; }
+    _dotfiles_log_dim()     { :; }
+    _dotfiles_log_success() { :; }
+    _dotfiles_log_step()    { echo "→ $*"; }
+    _dotfiles_log_summary() { echo "✓ $*"; }
+    _dotfiles_log_warning() { echo "⚠  $*" >&2; }
+    _dotfiles_log_error()   { echo "✗ $*" >&2; }
+fi
+unset _DF_LIB
 
-# UI symbols - fallback to ASCII if Unicode not supported
-readonly CHECK="✓"
-readonly CROSS="✗"
-readonly ARROW="→"
-readonly BULLET="•"
+# Local aliases for shorter color/glyph references in this script
+readonly RED="$_DF_RED" GREEN="$_DF_GREEN" YELLOW="$_DF_YELLOW"
+readonly BLUE="$_DF_BLUE" MAGENTA="$_DF_MAGENTA" CYAN="$_DF_CYAN"
+readonly WHITE="$_DF_WHITE" GRAY="$_DF_GRAY"
+readonly BOLD="$_DF_BOLD" RESET="$_DF_RESET"
+readonly CHECK="$_DF_CHECK" CROSS="$_DF_CROSS"
+readonly ARROW="$_DF_ARROW" BULLET="$_DF_BULLET"
 
-# =============================================================================
-# Logging Functions
-# =============================================================================
-# Check if verbose mode is enabled
 is_verbose() {
     [[ "${DOTFILES_VERBOSE:-$DEFAULT_VERBOSE}" == "true" ]]
 }
@@ -97,14 +102,6 @@ with_menu_output() {
     return $result
 }
 
-log_info() { echo -e "${CYAN}${BULLET}${RESET} ${WHITE}$1${RESET}"; }
-log_success() { echo -e "${GREEN}${CHECK}${RESET} ${BOLD}${GREEN}$1${RESET}"; }
-log_warning() { echo -e "${YELLOW}⚠${RESET}  ${YELLOW}$1${RESET}"; }
-log_error() { echo -e "${RED}${CROSS}${RESET} ${BOLD}${RED}$1${RESET}"; }
-log_step() { echo -e "${MAGENTA}${ARROW}${RESET} ${BOLD}${MAGENTA}$1${RESET}"; }
-log_dim() { echo -e "${GRAY}  $1${RESET}"; }
-log_verbose() { is_verbose && echo -e "${MAGENTA}[VERBOSE]${RESET} ${GRAY}$1${RESET}"; }
-
 # =============================================================================
 # Validation Functions
 # =============================================================================
@@ -117,13 +114,13 @@ validate_profile() {
         [[ "$profile" == "$valid_profile" ]] && return 0
     done
 
-    log_error "Invalid profile '$profile'. Valid profiles: ${valid_profiles[*]}"
+    _dotfiles_log_error "Invalid profile '$profile'. Valid profiles: ${valid_profiles[*]}"
     return 1
 }
 
 is_interactive() { [[ -t 0 && -t 1 ]]; }
 
-die() { log_error "$1"; exit 1; }
+die() { _dotfiles_log_error "$1"; exit 1; }
 
 # =============================================================================
 # Banner & UI Functions
@@ -161,31 +158,31 @@ set_defaults() {
 
 load_config() {
     [[ ! -f "$CONFIG_FILE" ]] && {
-        log_verbose "No configuration file found at $CONFIG_FILE"
+        _dotfiles_log_debug "No configuration file found at $CONFIG_FILE"
         return 0
     }
 
-    log_verbose "Loading configuration from $CONFIG_FILE"
+    _dotfiles_log_debug "Loading configuration from $CONFIG_FILE"
 
     # Load configuration values with fallbacks
     local value
 
     if value=$(extract_config_value "DOTFILES_ROOT" "$CONFIG_FILE" 2>/dev/null || true); then
         [[ -n "$value" ]] && export DOTFILES_ROOT="$value"
-        log_verbose "Loaded DOTFILES_ROOT: ${value:-default}"
+        _dotfiles_log_debug "Loaded DOTFILES_ROOT: ${value:-default}"
     fi
 
     if value=$(extract_config_value "DOTFILES_PROFILE" "$CONFIG_FILE" 2>/dev/null || true); then
         [[ -n "$value" ]] && export DOTFILES_PROFILE="$value"
-        log_verbose "Loaded DOTFILES_PROFILE: ${value:-default}"
+        _dotfiles_log_debug "Loaded DOTFILES_PROFILE: ${value:-default}"
     fi
 
     if value=$(extract_config_value "DOTFILES_VERBOSE" "$CONFIG_FILE" 2>/dev/null || true); then
         [[ -n "$value" ]] && export DOTFILES_VERBOSE="$value"
-        log_verbose "Loaded DOTFILES_VERBOSE: ${value:-default}"
+        _dotfiles_log_debug "Loaded DOTFILES_VERBOSE: ${value:-default}"
     fi
 
-    log_verbose "Configuration loaded successfully"
+    _dotfiles_log_debug "Configuration loaded successfully"
 }
 
 save_config() {
@@ -217,7 +214,7 @@ export DOTFILES_PROFILE="${DOTFILES_PROFILE:-$DEFAULT_PROFILE}"
 export DOTFILES_VERBOSE="${DOTFILES_VERBOSE:-$DEFAULT_VERBOSE}"
 EOF
 
-    log_verbose "Configuration saved to $CONFIG_FILE"
+    _dotfiles_log_debug "Configuration saved to $CONFIG_FILE"
 }
 
 # =============================================================================
@@ -225,7 +222,7 @@ EOF
 # =============================================================================
 setup_environment() {
     # Always show progress, detailed section only in verbose mode
-    log_step "Setting up environment..."
+    _dotfiles_log_step "Setting up environment..."
     show_section "Configuration Setup"
 
     # Load existing configuration and set defaults
@@ -236,17 +233,17 @@ setup_environment() {
     if [[ -z "${DOTFILES_REPO:-}" ]]; then
         if [[ -d "$SCRIPT_DIR/.git" ]]; then
             DOTFILES_REPO=$(cd "$SCRIPT_DIR" && git remote get-url origin 2>/dev/null || echo "")
-            log_verbose "Auto-detected repository from local git"
+            _dotfiles_log_debug "Auto-detected repository from local git"
         else
             DOTFILES_REPO="$REPO_URL"
-            log_verbose "Using default repository"
+            _dotfiles_log_debug "Using default repository"
         fi
     fi
     export DOTFILES_REPO
 
     # Validate settings (show error but don't exit)
     validate_profile "$DOTFILES_PROFILE" || {
-        log_warning "Using default profile '$DEFAULT_PROFILE'"
+        _dotfiles_log_warning "Using default profile '$DEFAULT_PROFILE'"
         export DOTFILES_PROFILE="$DEFAULT_PROFILE"
     }
 }
@@ -264,46 +261,46 @@ setup_repository() {
 
     if is_fresh_install; then
         # INSTALL: Clone the repository
-        log_step "Installing dotfiles (fresh installation)..."
-        is_verbose && log_step "Cloning repository"
+        _dotfiles_log_step "Installing dotfiles (fresh installation)..."
+        is_verbose && _dotfiles_log_step "Cloning repository"
         if [[ -z "$DOTFILES_REPO" ]]; then
-            log_error "Repository URL not specified"
+            _dotfiles_log_error "Repository URL not specified"
             return 1
         fi
-        is_verbose && log_dim "Downloading from $DOTFILES_REPO..."
+        is_verbose && _dotfiles_log_dim "Downloading from $DOTFILES_REPO..."
         git clone "$DOTFILES_REPO" "$DOTFILES_ROOT" >/dev/null 2>&1 || {
-            log_error "Failed to clone repository"
+            _dotfiles_log_error "Failed to clone repository"
             return 1
         }
         cd "$DOTFILES_ROOT"
         local head_sha
         head_sha="$(git -C "$DOTFILES_ROOT" rev-parse HEAD 2>/dev/null || echo "unknown")"
-        log_success "Repository cloned at $DOTFILES_ROOT (HEAD: $head_sha)"
-        log_verbose "Verify this commit at: $DOTFILES_REPO"
+        _dotfiles_log_success "Repository cloned at $DOTFILES_ROOT (HEAD: $head_sha)"
+        _dotfiles_log_debug "Verify this commit at: $DOTFILES_REPO"
     else
         # UPDATE: Fast-forward only pull (never creates merge commits)
-        log_step "Updating dotfiles (pulling latest changes)..."
+        _dotfiles_log_step "Updating dotfiles (pulling latest changes)..."
         cd "$DOTFILES_ROOT"
 
         # Abort if working tree is dirty — user must resolve first
         if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
-            log_error "Local changes detected. Commit or stash them before updating."
+            _dotfiles_log_error "Local changes detected. Commit or stash them before updating."
             return 1
         fi
 
         local current_branch
         current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-        is_verbose && log_dim "Current branch: $current_branch"
+        is_verbose && _dotfiles_log_dim "Current branch: $current_branch"
 
         local remote_branch="${DOTFILES_BRANCH:-$current_branch}"
-        is_verbose && log_dim "Pulling from origin/$remote_branch (--ff-only)..."
+        is_verbose && _dotfiles_log_dim "Pulling from origin/$remote_branch (--ff-only)..."
 
         git pull --ff-only origin "$remote_branch" >/dev/null 2>&1 || {
-            log_error "Failed to pull — non-fast-forward or network error. Check 'git status' and try again."
+            _dotfiles_log_error "Failed to pull — non-fast-forward or network error. Check 'git status' and try again."
             return 1
         }
 
-        log_success "Repository updated at $DOTFILES_ROOT"
+        _dotfiles_log_success "Repository updated at $DOTFILES_ROOT"
     fi
 }
 
@@ -336,18 +333,18 @@ create_single_symlink() {
 
     # Remove existing symlink — refuse to rm -rf a real directory
     if [[ -L "$target_path" ]]; then
-        rm -f "$target_path" || { log_error "Failed to remove symlink: $target_path"; return 1; }
+        rm -f "$target_path" || { _dotfiles_log_error "Failed to remove symlink: $target_path"; return 1; }
     elif [[ -e "$target_path" ]]; then
-        log_warning "Skipping $target_path — already exists and is not a symlink (remove manually if intended)"
+        _dotfiles_log_warning "Skipping $target_path — already exists and is not a symlink (remove manually if intended)"
         return 1
     fi
 
     # Create symlink (always do the work, only show output if verbose)
     if ln -sf "$source_path" "$target_path"; then
-        is_verbose && log_dim "${GREEN}${CHECK}${RESET} $display_name ${MAGENTA}${ARROW}${RESET} $target_path"
+        is_verbose && _dotfiles_log_dim "${GREEN}${CHECK}${RESET} $display_name ${MAGENTA}${ARROW}${RESET} $target_path"
         return 0
     else
-        log_error "Failed to create symlink: $source_path -> $target_path"
+        _dotfiles_log_error "Failed to create symlink: $source_path -> $target_path"
         return 1
     fi
 }
@@ -395,13 +392,13 @@ link_directory_files() {
         fi
     done
 
-    log_verbose "Linked $linked_count files from $source_dir"
-    [[ $failed_count -gt 0 ]] && log_warning "Failed to link $failed_count files"
+    _dotfiles_log_debug "Linked $linked_count files from $source_dir"
+    [[ $failed_count -gt 0 ]] && _dotfiles_log_warning "Failed to link $failed_count files"
 }
 
 create_symlinks() {
     # Always show progress message, detailed section only in verbose mode
-    log_step "Creating symlinks..."
+    _dotfiles_log_step "Creating symlinks..."
     show_section "Creating symlinks..."
 
     # Link dotfiles (files in root directory)
@@ -447,25 +444,25 @@ check_directory_symlinks() {
         if ! should_exclude "$name" && [[ -f "$item" || -d "$item" ]]; then
             ((item_count++))
             if [[ -L "$target" ]] && [[ -e "$target" ]]; then
-                is_verbose && log_dim "${GREEN}${CHECK}${RESET} $name ${MAGENTA}${ARROW}${RESET} $target"
+                is_verbose && _dotfiles_log_dim "${GREEN}${CHECK}${RESET} $name ${MAGENTA}${ARROW}${RESET} $target"
                 printf -v "$total_links_ref" '%d' "$((${!total_links_ref} + 1))"
             else
-                log_error "Broken or missing: $target"
+                _dotfiles_log_error "Broken or missing: $target"
                 printf -v "$broken_links_ref" '%d' "$((${!broken_links_ref} + 1))"
             fi
         fi
     done
 
-    log_verbose "Checked $item_count items in $source_dir"
+    _dotfiles_log_debug "Checked $item_count items in $source_dir"
 }
 
 verify_symlinks() {
     # Always show progress, detailed section only in verbose mode
-    log_step "Verifying symlinks..."
+    _dotfiles_log_step "Verifying symlinks..."
     show_section "Verifying symlinks..."
 
-    [[ -n "$DOTFILES_ROOT" ]] || { log_error "DOTFILES_ROOT is not set"; return 1; }
-    [[ -d "$DOTFILES_ROOT" ]] || { log_error "Dotfiles directory not found: $DOTFILES_ROOT"; return 1; }
+    [[ -n "$DOTFILES_ROOT" ]] || { _dotfiles_log_error "DOTFILES_ROOT is not set"; return 1; }
+    [[ -d "$DOTFILES_ROOT" ]] || { _dotfiles_log_error "Dotfiles directory not found: $DOTFILES_ROOT"; return 1; }
 
     local total_links=0
     local broken_links=0
@@ -484,21 +481,21 @@ verify_symlinks() {
     # Summary (always show)
     echo
     if [[ $broken_links -eq 0 ]]; then
-        log_success "All $total_links symlinks are working"
+        _dotfiles_log_success "All $total_links symlinks are working"
         return 0
     else
-        log_warning "Found $broken_links broken symlinks out of $total_links total"
+        _dotfiles_log_warning "Found $broken_links broken symlinks out of $total_links total"
         return 1
     fi
 }
 
 # Check which packages in the active profile are not installed
 verify_packages() {
-    log_step "Checking package status for profile: $DOTFILES_PROFILE"
+    _dotfiles_log_step "Checking package status for profile: $DOTFILES_PROFILE"
     show_section "Package Status"
 
     command -v zsh &>/dev/null || {
-        log_warning "zsh not found, cannot check packages"
+        _dotfiles_log_warning "zsh not found, cannot check packages"
         return 0
     }
 
@@ -533,15 +530,15 @@ verify_packages() {
 
     echo
     if [[ -z "$warnings" ]]; then
-        log_success "All packages for profile '$DOTFILES_PROFILE' are installed"
+        _dotfiles_log_success "All packages for profile '$DOTFILES_PROFILE' are installed"
         return 0
     else
-        log_warning "Not installed packages:"
+        _dotfiles_log_warning "Not installed packages:"
         while IFS= read -r line; do
             echo -e "  ${YELLOW}${BULLET}${RESET} $line"
         done <<< "$warnings"
         echo
-        log_info "Run 'dotfiles install' to install missing packages"
+        _dotfiles_log_info "Run 'dotfiles install' to install missing packages"
         return 1
     fi
 }
@@ -560,16 +557,16 @@ verify_all() {
 # =============================================================================
 install_packages() {
     # Always show progress, detailed section only in verbose mode
-    log_step "Installing packages for profile: $DOTFILES_PROFILE"
+    _dotfiles_log_step "Installing packages for profile: $DOTFILES_PROFILE"
     show_section "Package Installation"
 
     command -v zsh &>/dev/null || {
-        log_warning "zsh not found, skipping package installation"
+        _dotfiles_log_warning "zsh not found, skipping package installation"
         return 0
     }
 
     echo
-    log_info "Checking packages for profile: $DOTFILES_PROFILE"
+    _dotfiles_log_info "Checking packages for profile: $DOTFILES_PROFILE"
     echo
 
     # Package files use zsh-specific syntax (typeset, setopt, glob qualifiers).
@@ -602,14 +599,14 @@ install_packages() {
         done
     ' || exit_code=$?
 
-    [[ $exit_code -ne 0 ]] && log_error "Package installation encountered errors (exit $exit_code)"
+    [[ $exit_code -ne 0 ]] && _dotfiles_log_error "Package installation encountered errors (exit $exit_code)"
 
     echo
-    log_success "Package check and installation completed"
+    _dotfiles_log_success "Package check and installation completed"
 
     # Show profile-specific package list
     echo
-    log_info "Profile '$DOTFILES_PROFILE' includes:"
+    _dotfiles_log_info "Profile '$DOTFILES_PROFILE' includes:"
     case "$DOTFILES_PROFILE" in
         minimal)
             echo -e "  ${CYAN}${BULLET}${RESET} tmux, sheldon"
@@ -628,9 +625,9 @@ install_packages() {
 # Profile Management
 # =============================================================================
 configure_profile() {
-    log_info "Configuring profile: $DOTFILES_PROFILE"
+    _dotfiles_log_info "Configuring profile: $DOTFILES_PROFILE"
     save_config
-    log_success "Profile configured successfully"
+    _dotfiles_log_success "Profile configured successfully"
 }
 
 # =============================================================================
@@ -643,9 +640,9 @@ install_dotfiles() {
     is_fresh_install && is_install=true
 
     if $is_install; then
-        log_step "Starting dotfiles installation (fresh install)"
+        _dotfiles_log_step "Starting dotfiles installation (fresh install)"
     else
-        log_step "Starting dotfiles update"
+        _dotfiles_log_step "Starting dotfiles update"
     fi
 
     # Step 1: Setup environment (load config, set defaults)
@@ -653,7 +650,7 @@ install_dotfiles() {
 
     # Step 2: Clone or update the repository
     setup_repository || {
-        log_error "Failed to setup repository"
+        _dotfiles_log_error "Failed to setup repository"
         return 1
     }
 
@@ -674,7 +671,7 @@ install_dotfiles() {
         echo -e "${BOLD}${GREEN}╰────────────────────────────────────────────────────────────────╯${RESET}"
         echo
 
-        log_success "Profile '$DOTFILES_PROFILE' is now active"
+        _dotfiles_log_success "Profile '$DOTFILES_PROFILE' is now active"
 
         # Show what's included
         echo
@@ -693,17 +690,17 @@ install_dotfiles() {
         echo -e "${BOLD}${GREEN}╰────────────────────────────────────────────────────────────────╯${RESET}"
         echo
 
-        log_success "Dotfiles updated to latest version"
-        log_success "Profile '$DOTFILES_PROFILE' is active"
+        _dotfiles_log_success "Dotfiles updated to latest version"
+        _dotfiles_log_success "Profile '$DOTFILES_PROFILE' is active"
     fi
 
     # Step 6: Source a new zsh shell (always)
     echo
     if command -v zsh &>/dev/null; then
-        log_info "Starting new zsh shell..."
+        _dotfiles_log_info "Starting new zsh shell..."
         exec zsh -l
     else
-        log_warning "zsh not found, please restart your terminal manually"
+        _dotfiles_log_warning "zsh not found, please restart your terminal manually"
     fi
 }
 
@@ -738,12 +735,12 @@ remove_symlinks_from_dir() {
 }
 
 uninstall_dotfiles() {
-    log_warning "This will remove all dotfiles symlinks and configuration"
+    _dotfiles_log_warning "This will remove all dotfiles symlinks and configuration"
 
     if is_interactive; then
         echo -n "Are you sure? [y/N]: "
         read -r response
-        [[ ! "$response" =~ ^[Yy]$ ]] && { log_info "Uninstallation cancelled"; return 0; }
+        [[ ! "$response" =~ ^[Yy]$ ]] && { _dotfiles_log_info "Uninstallation cancelled"; return 0; }
     fi
 
     local unlink_count=0
@@ -767,8 +764,8 @@ uninstall_dotfiles() {
     # Guards against a misconfigured DOTFILES_ROOT wiping unintended directories
     if [[ -d "$DOTFILES_ROOT" ]]; then
         if [[ "$DOTFILES_ROOT" != "$HOME/"* ]] || [[ ! -d "$DOTFILES_ROOT/.git" ]]; then
-            log_error "Refusing to remove '$DOTFILES_ROOT' — not a git repo under \$HOME"
-            log_error "Delete it manually if intended: rm -rf '$DOTFILES_ROOT'"
+            _dotfiles_log_error "Refusing to remove '$DOTFILES_ROOT' — not a git repo under \$HOME"
+            _dotfiles_log_error "Delete it manually if intended: rm -rf '$DOTFILES_ROOT'"
             return 1
         fi
         rm -rf "$DOTFILES_ROOT"
@@ -778,7 +775,7 @@ uninstall_dotfiles() {
     rm -f "${CONFIG_FILE}.backup" "${CONFIG_FILE}.backup.1" \
           "${CONFIG_FILE}.backup.2" "${CONFIG_FILE}.backup.3" 2>/dev/null || true
 
-    log_success "Removed $unlink_count symlinks and dotfiles directory"
+    _dotfiles_log_success "Removed $unlink_count symlinks and dotfiles directory"
 }
 
 # =============================================================================
@@ -831,7 +828,7 @@ interactive_menu() {
                 if validate_profile "$new_profile" 2>/dev/null; then
                     export DOTFILES_PROFILE="$new_profile"
                     save_config
-                    log_success "Profile changed to: $new_profile"
+                    _dotfiles_log_success "Profile changed to: $new_profile"
                 fi
                 sleep 2
                 ;;
@@ -860,10 +857,10 @@ interactive_menu() {
                 # Toggle verbose mode (for zshrc sourcing only)
                 if is_verbose; then
                     export DOTFILES_VERBOSE="false"
-                    log_success "Verbose mode disabled (affects shell startup only)"
+                    _dotfiles_log_success "Verbose mode disabled (affects shell startup only)"
                 else
                     export DOTFILES_VERBOSE="true"
-                    log_success "Verbose mode enabled (affects shell startup only)"
+                    _dotfiles_log_success "Verbose mode enabled (affects shell startup only)"
                 fi
                 save_config
                 sleep 2
@@ -892,10 +889,10 @@ interactive_menu() {
                 ;;
             q)
                 save_config
-                log_success "Goodbye!"
+                _dotfiles_log_success "Goodbye!"
                 exit 0
                 ;;
-            *) log_error "Invalid choice"; sleep 1 ;;
+            *) _dotfiles_log_error "Invalid choice"; sleep 1 ;;
         esac
     done
 }
@@ -1008,7 +1005,7 @@ parse_args() {
             ;;
         *)
             if [[ -n "$command" ]]; then
-                log_error "Unknown command: $command"
+                _dotfiles_log_error "Unknown command: $command"
                 echo
                 show_usage
                 exit 1
@@ -1023,7 +1020,7 @@ handle_profile_command() {
     local new_profile="$1"
 
     if [[ -z "$new_profile" ]]; then
-        log_error "Profile name required. Usage: $SCRIPT_NAME profile <minimal|server>"
+        _dotfiles_log_error "Profile name required. Usage: $SCRIPT_NAME profile <minimal|server>"
         return 1
     fi
 
@@ -1043,7 +1040,7 @@ handle_profile_command() {
     fi
 
     export DOTFILES_PROFILE="$new_profile"
-    log_success "Profile set to ${new_profile}. Run: source ~/.zshrc"
+    _dotfiles_log_success "Profile set to ${new_profile}. Run: source ~/.zshrc"
     return 0
 }
 
