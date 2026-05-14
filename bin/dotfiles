@@ -324,6 +324,9 @@ clone_repository_if_missing() {
 # path on conflict.
 # -----------------------------------------------------------------------------
 update_dotfiles() {
+    local do_stash=false
+    [[ "${1:-}" == "--stash" ]] && do_stash=true
+
     if [[ ! -d "$DOTFILES_ROOT/.git" ]]; then
         _dotfiles_log_error "Not a git repository: $DOTFILES_ROOT"
         _dotfiles_log_dim "Run 'dotfiles install' first to clone the repo."
@@ -357,6 +360,14 @@ update_dotfiles() {
     local was_dirty=false stash_ref=""
     if ! git diff --quiet HEAD 2>/dev/null || \
        [[ -n "$(git ls-files --others --exclude-standard 2>/dev/null)" ]]; then
+        if ! $do_stash; then
+            _dotfiles_log_error "Local changes detected. Resolve before updating, or pass --stash."
+            _dotfiles_log_dim "Options:"
+            _dotfiles_log_dim "  git stash && dotfiles update && git stash pop   # manual"
+            _dotfiles_log_dim "  dotfiles update --stash                          # auto-stash + restore"
+            _dotfiles_log_dim "  git commit -am 'WIP' && dotfiles update          # commit first"
+            return 1
+        fi
         was_dirty=true
         # `git stash create` returns commit SHA without touching refs
         stash_ref="$(git stash create -u 2>/dev/null)"
@@ -400,7 +411,7 @@ update_dotfiles() {
 # Sync — update + reinstall in one go
 # -----------------------------------------------------------------------------
 sync_dotfiles() {
-    update_dotfiles && install_dotfiles
+    update_dotfiles "${1:-}" && install_dotfiles
 }
 
 # =============================================================================
@@ -831,7 +842,7 @@ remove_symlinks_from_dir() {
 }
 
 uninstall_dotfiles() {
-    _dotfiles_log_warning "This will remove all dotfiles symlinks and configuration"
+    _dotfiles_log_warning "This will remove all dotfiles symlinks, packages, and the repo dir"
 
     if is_interactive; then
         echo -n "Are you sure? [y/N]: "
@@ -839,24 +850,59 @@ uninstall_dotfiles() {
         [[ ! "$response" =~ ^[Yy]$ ]] && { _dotfiles_log_info "Uninstallation cancelled"; return 0; }
     fi
 
-    local unlink_count=0
+    show_section "Uninstall"
 
-    # Remove root and config symlinks using shared function
+    # 1. Reverse-iterate active-profile packages and dispatch pkg_uninstall
+    _dotfiles_log_step "Asking packages to uninstall (reverse order)"
+    local -a all_pkgs=() failed_pkgs=()
+    while IFS= read -r f; do all_pkgs+=("$f"); done < <(_iter_profile_packages)
+
+    local i pkg_file pkg_name rc
+    for (( i=${#all_pkgs[@]}-1; i>=0; i-- )); do
+        pkg_file="${all_pkgs[$i]}"
+        pkg_name="$(basename "$pkg_file" .zsh)"
+        pkg_name="${pkg_name#[0-9][0-9]-}"
+        _dispatch_pkg_hook "$pkg_file" pkg_uninstall
+        rc=$?
+        case $rc in
+            0) _dotfiles_log_result "$pkg_name" "uninstalled" ;;
+            2) _dotfiles_log_error "$pkg_name: pkg_uninstall is REQUIRED but missing"
+               failed_pkgs+=("$pkg_name|missing|N/A|implement pkg_uninstall in $pkg_file") ;;
+            *) failed_pkgs+=("$pkg_name|rc=$rc|see hook output above|investigate manually") ;;
+        esac
+    done
+
+    # 2. Print failure summary (cause + remaining + recovery, per PRD contract)
+    if [[ ${#failed_pkgs[@]} -gt 0 ]]; then
+        echo
+        _dotfiles_log_warning "${#failed_pkgs[@]} package uninstall(s) failed:"
+        local entry name err rem rec
+        for entry in "${failed_pkgs[@]}"; do
+            IFS='|' read -r name err rem rec <<< "$entry"
+            _dotfiles_log_warning "$name:"
+            _dotfiles_log_dim "  error:     $err"
+            _dotfiles_log_dim "  remaining: $rem"
+            _dotfiles_log_dim "  recovery:  $rec"
+        done
+        echo
+        _dotfiles_log_warning "Continuing with symlink and repo removal."
+    fi
+
+    # 3. Remove symlinks (preserves CONFIG_EXCLUDE handling)
+    local unlink_count=0
     remove_symlinks_from_dir "$DOTFILES_ROOT" "$HOME/." unlink_count
     DOTFILES_CONFIG_EXCLUDE="claude" \
         remove_symlinks_from_dir "$DOTFILES_ROOT/config" "$HOME/.config/" unlink_count
-
-    # Remove Claude Code config symlinks
     [[ -d "$DOTFILES_ROOT/config/claude" ]] && \
         remove_symlinks_from_dir "$DOTFILES_ROOT/config/claude" "$HOME/.claude/" unlink_count
 
-    # Remove from .zshenv
+    # 4. Remove DOTFILES_* exports from zshenv
     [[ -f "$CONFIG_FILE" ]] && {
         sed_inplace "$CONFIG_FILE" '/^export DOTFILES_/d'
         sed_inplace "$CONFIG_FILE" '/^# Dotfiles Configuration/d'
     }
 
-    # Remove dotfiles directory — validate path before deletion
+    # 5. Remove the dotfiles directory — validate path before deletion
     # Guards against a misconfigured DOTFILES_ROOT wiping unintended directories
     if [[ -d "$DOTFILES_ROOT" ]]; then
         if [[ "$DOTFILES_ROOT" != "$HOME/"* ]] || [[ ! -d "$DOTFILES_ROOT/.git" ]]; then
@@ -871,7 +917,12 @@ uninstall_dotfiles() {
     rm -f "${CONFIG_FILE}.backup" "${CONFIG_FILE}.backup.1" \
           "${CONFIG_FILE}.backup.2" "${CONFIG_FILE}.backup.3" 2>/dev/null || true
 
-    _dotfiles_log_success "Removed $unlink_count symlinks and dotfiles directory"
+    echo
+    if [[ ${#failed_pkgs[@]} -eq 0 ]]; then
+        _dotfiles_log_summary "Uninstalled $unlink_count symlinks, all packages, and dotfiles repo"
+    else
+        _dotfiles_log_summary "Uninstalled $unlink_count symlinks and dotfiles repo. ${#failed_pkgs[@]} package(s) need manual cleanup (see above)."
+    fi
 }
 
 # =============================================================================
@@ -937,15 +988,26 @@ clean_dotfiles() {
         done < <(find "$dir" -mindepth 1 -maxdepth "$maxdepth" -type l 2>/dev/null)
     done
 
-    # mise leftover detection — hint only
-    if [[ -d "$HOME/.local/share/mise" || -d "$HOME/.config/mise" ]]; then
-        _dotfiles_log_warning "Leftover mise state at ~/.local/share/mise or ~/.config/mise"
-        _dotfiles_log_warning "vfox now manages SDKs. If your tools work, remove manually:"
-        _dotfiles_log_dim "  rm -rf ~/.local/share/mise ~/.config/mise"
-    fi
+    # Per-package clean dispatch
+    _dotfiles_log_step "Asking packages to declare cleanable state"
+    local pkg_file pkg_name rc
+    local clean_arg=""
+    $force && clean_arg="--force"
+    while IFS= read -r pkg_file; do
+        pkg_name="$(basename "$pkg_file" .zsh)"
+        pkg_name="${pkg_name#[0-9][0-9]-}"
+        # Pass force flag via env var; hook reads ${DOTFILES_CLEAN_FORCE:-} to decide dry-run vs apply
+        DOTFILES_CLEAN_FORCE="$clean_arg" _dispatch_pkg_hook "$pkg_file" pkg_clean
+        rc=$?
+        case $rc in
+            0) ;;  # success — hook already printed its own status
+            2) is_verbose && _dotfiles_log_dim "$pkg_name: no pkg_clean defined (skip)" ;;
+            *) _dotfiles_log_warning "$pkg_name: clean returned $rc" ;;
+        esac
+    done < <(_iter_profile_packages)
 
     if [[ $found -eq 0 ]]; then
-        _dotfiles_log_summary "Nothing to clean"
+        _dotfiles_log_summary "Nothing to clean (symlinks)"
     elif $force; then
         _dotfiles_log_summary "Removed $removed of $found orphaned symlink(s)"
     else
@@ -1024,23 +1086,20 @@ doctor_dotfiles() {
         _dotfiles_log_detail "No mise leftovers"
     fi
 
-    # 5. vfox status (server profile only)
-    if [[ "${DOTFILES_PROFILE:-}" == "full" || "${DOTFILES_PROFILE:-}" == "server" ]]; then
-        _dotfiles_log_step "Checking vfox SDKs"
-        if command -v vfox >/dev/null 2>&1; then
-            _dotfiles_log_result "vfox" "$(vfox --version 2>&1 | head -1)"
-            local sdks_file="${XDG_CONFIG_HOME:-$HOME/.config}/vfox/sdks"
-            if [[ -f "$sdks_file" ]]; then
-                _dotfiles_log_result "manifest" "$sdks_file"
-            else
-                _dotfiles_log_warning "SDK manifest missing: $sdks_file"
-                ((issues++))
-            fi
-        else
-            _dotfiles_log_warning "vfox not installed — run 'dotfiles install'"
-            ((issues++))
-        fi
-    fi
+    # 5. Per-package doctor (replaces hardcoded vfox check)
+    _dotfiles_log_step "Checking packages"
+    local pkg_file pkg_name rc
+    while IFS= read -r pkg_file; do
+        pkg_name="$(basename "$pkg_file" .zsh)"
+        pkg_name="${pkg_name#[0-9][0-9]-}"
+        _dispatch_pkg_hook "$pkg_file" pkg_doctor
+        rc=$?
+        case $rc in
+            0) ;;  # success — hook already printed its own result
+            2) is_verbose && _dotfiles_log_dim "$pkg_name: no pkg_doctor defined (skip)" ;;
+            *) _dotfiles_log_warning "$pkg_name: doctor returned $rc"; ((issues+=rc)) ;;
+        esac
+    done < <(_iter_profile_packages)
 
     echo
     if [[ $issues -eq 0 ]]; then
@@ -1049,6 +1108,43 @@ doctor_dotfiles() {
         _dotfiles_log_summary "Found $issues issue(s)"
     fi
     return $issues
+}
+
+# =============================================================================
+# CLI Package Iteration Helpers
+# =============================================================================
+
+# Emit absolute paths of every package file in the active profile, one per line.
+# Forward (alphabetical) order. Reverse with a counter loop where needed.
+_iter_profile_packages() {
+    local profile="${DOTFILES_PROFILE:-$DEFAULT_PROFILE}"
+    local -a pkg_dirs
+    case "$profile" in
+        core|minimal) pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core") ;;
+        *)            pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core"
+                                "$DOTFILES_ROOT/zsh/packages/full") ;;
+    esac
+    local dir f
+    for dir in "${pkg_dirs[@]}"; do
+        [[ -d "$dir" ]] || continue
+        for f in "$dir"/*.zsh; do
+            [[ -f "$f" ]] && echo "$f"
+        done
+    done
+}
+
+# Run a single package hook via zsh and propagate the helper's exit code.
+# Args: <package_file> <hook_name>
+# Returns: 0=ok, 1=failure, 2=hook not defined, N=propagated from hook
+_dispatch_pkg_hook() {
+    local pkg_file="$1" hook_name="$2"
+    zsh -c "
+        export DOTFILES_ROOT=\"$DOTFILES_ROOT\"
+        export DOTFILES_VERBOSE=\"${DOTFILES_VERBOSE:-false}\"
+        source \"$DOTFILES_ROOT/zsh/lib/log.sh\"
+        source \"$DOTFILES_ROOT/zsh/lib/installer.zsh\"
+        _dotfiles_invoke_package_hook \"$pkg_file\" \"$hook_name\"
+    "
 }
 
 # =============================================================================
@@ -1076,15 +1172,14 @@ show_menu() {
     echo -e "  ${CYAN}5)${RESET} Doctor       — read-only health check"
     echo -e "  ${CYAN}6)${RESET} Link         — create/refresh symlinks only"
     echo -e "  ${CYAN}7)${RESET} Packages     — install packages for active profile"
-    echo -e "  ${CYAN}8)${RESET} Verify       — verify all symlinks"
-    echo -e "  ${CYAN}9)${RESET} Profile      — change active profile"
+    echo -e "  ${CYAN}8)${RESET} Profile      — change active profile"
     echo -e "  ${CYAN}u)${RESET} Uninstall    — remove all symlinks and dotfiles"
     echo -e "  ${CYAN}t)${RESET} Toggle verbose mode"
     echo -e "  ${CYAN}h)${RESET} Help"
     echo -e "  ${CYAN}q)${RESET} Quit"
 
     echo
-    echo -n "Choose an option [1-9,u,t,h,q]: "
+    echo -n "Choose an option [1-8,u,t,h,q]: "
 }
 
 interactive_menu() {
@@ -1128,11 +1223,6 @@ interactive_menu() {
                 read -r
                 ;;
             8)
-                verify_all
-                echo -e "\n${GRAY}Press Enter to continue...${RESET}"
-                read -r
-                ;;
-            9)
                 echo -n "Enter new profile (core/full): "
                 read -r new_profile
                 if validate_profile "$new_profile" 2>/dev/null; then
@@ -1207,35 +1297,45 @@ USAGE:
   $SCRIPT_NAME [COMMAND] [OPTIONS]
 
 COMMANDS:
-  install     Symlink configs and install packages (default).
-              Does NOT pull from git — safe to run on a dirty working tree.
-              For fresh machines: clones the repo first.
-  update      Pull latest changes (auto-stash + rebase + pop).
-              Aborts cleanly on conflict, preserving local changes in stash.
-  sync        Shortcut for: update && install
   clean       Remove orphaned symlinks pointing into the repo (dry-run default).
-              Pass --force to apply. Never touches user-created symlinks.
-  doctor      Read-only health check: tools, repo, symlinks, vfox SDKs.
-              Exit code = number of issues.
-  uninstall   Remove all symlinks, packages config, and the dotfiles directory
-  link        Create or refresh symlinks only
-  profile     Change active profile (core | full)
-  packages    Install required packages for current profile
-  verify      Verify all symlinks resolve correctly
-  version     Show version information
+  (-c)        Pass --force to apply. Never touches user-created symlinks.
+  doctor      Read-only health check: tools, repo, symlinks, packages.
+  (-d)        Exit code = number of issues.
   help        Show this help message
+  install     Symlink configs and install packages (default).
+  (-i)        Does NOT pull from git — safe to run on a dirty working tree.
+              For fresh machines: clones the repo first.
+  link        Create or refresh symlinks only
+  packages    Install required packages for current profile
+  profile     Change active profile (core | full)
+  sync        Shortcut for: update && install
+  (-s)        Pass --stash to auto-stash local changes before pulling.
+  uninstall   Remove all symlinks, packages config, and the dotfiles directory
+  update      Pull latest changes (warn-and-abort on dirty tree by default).
+  (-u)        Pass --stash to auto-stash + rebase + pop.
+              Aborts cleanly on conflict, preserving local changes in stash.
+  version     Show version information
 
 OPTIONS:
   -v, --verbose    Enable verbose output (shell startup + CLI details)
   -h, --help       Show this help message
+  -i               Alias for install
+  -u               Alias for update
+  -c               Alias for clean
+  -d               Alias for doctor
+  -s               Alias for sync
 
 EXAMPLES:
   $SCRIPT_NAME                    # Interactive menu
   $SCRIPT_NAME install            # Symlinks + packages (no git)
-  $SCRIPT_NAME update             # Pull latest (safe on dirty tree)
+  $SCRIPT_NAME -i                 # Same as install
+  $SCRIPT_NAME update             # Pull latest (aborts if dirty)
+  $SCRIPT_NAME update --stash     # Pull + auto-stash local changes
+  $SCRIPT_NAME -u --stash         # Same as update --stash
   $SCRIPT_NAME sync               # Pull + reinstall
-  $SCRIPT_NAME profile server     # Switch to server profile
-  DOTFILES_PROFILE=server $SCRIPT_NAME install
+  $SCRIPT_NAME -d                 # Run health check
+  $SCRIPT_NAME profile full       # Switch to full profile
+  DOTFILES_PROFILE=full $SCRIPT_NAME install
 
 For more information, visit: $DOCS_URL
 EOF
@@ -1276,23 +1376,23 @@ parse_args() {
 
     # Parse commands
     case "$command" in
-        ""|install)
+        ""|install|-i)
             if is_interactive && [[ -z "$command" ]]; then
                 interactive_menu
             else
                 install_dotfiles
             fi
             ;;
-        update)
-            update_dotfiles
+        update|-u)
+            update_dotfiles "${2:-}"
             ;;
-        sync)
-            sync_dotfiles
+        sync|-s)
+            sync_dotfiles "${2:-}"
             ;;
-        clean)
+        clean|-c)
             clean_dotfiles "${2:-}"
             ;;
-        doctor)
+        doctor|-d)
             doctor_dotfiles
             ;;
         uninstall)
@@ -1306,9 +1406,6 @@ parse_args() {
             ;;
         packages)
             install_packages
-            ;;
-        verify)
-            verify_all
             ;;
         version)
             show_version
