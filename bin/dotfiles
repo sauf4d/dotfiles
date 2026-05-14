@@ -1372,43 +1372,39 @@ USAGE:
   $SCRIPT_NAME [COMMAND] [OPTIONS]
 
 COMMANDS:
-  clean       Remove orphaned symlinks pointing into the repo (dry-run default).
-  (-c)        Pass --force to apply. Never touches user-created symlinks.
-  doctor      Read-only health check: tools, repo, symlinks, packages.
-  (-d)        Exit code = number of issues.
-  help        Show this help message
-  install     Symlink configs and install packages (default).
-  (-i)        Does NOT pull from git — safe to run on a dirty working tree.
-              For fresh machines: clones the repo first.
-  link        Create or refresh symlinks only
-  packages    Install required packages for current profile
-  profile     Change active profile (core | full)
-  sync        Shortcut for: update && install
-  (-s)        Pass --stash to auto-stash local changes before pulling.
-  uninstall   Remove all symlinks, packages config, and the dotfiles directory
-  update      Pull latest changes (warn-and-abort on dirty tree by default).
-  (-u)        Pass --stash to auto-stash + rebase + pop.
-              Aborts cleanly on conflict, preserving local changes in stash.
-  version     Show version information
+  clean | c    Remove orphaned symlinks pointing into the repo (dry-run default).
+               Pass --force to apply. Never touches user-created symlinks.
+  doctor | d   Read-only health check: tools, repo, symlinks, packages.
+               Exit code = number of issues.
+  help         Show this help message
+  install | i  Symlink configs and install packages (default).
+               Does NOT pull from git — safe to run on a dirty working tree.
+               For fresh machines: clones the repo first.
+  link         Create or refresh symlinks only
+  packages     Install required packages for current profile
+  profile      Change active profile (core | full)
+  sync | s     update && install in one step.
+               Pass --stash to auto-stash local changes before pulling.
+  uninstall    Remove all symlinks, packages config, and the dotfiles directory
+  update | u   Pull latest changes (warn-and-abort on dirty tree by default).
+               Pass --stash to auto-stash + rebase + pop.
+               Aborts cleanly on conflict, preserving local changes in stash.
+  version      Show version information
+
+Each command's short form works as a subcommand (\`dotfiles i\`) and as a
+dash-flag (\`dotfiles -i\`). Subcommand form is preferred.
 
 OPTIONS:
   -v, --verbose    Enable verbose output (shell startup + CLI details)
   -h, --help       Show this help message
-  -i               Alias for install
-  -u               Alias for update
-  -c               Alias for clean
-  -d               Alias for doctor
-  -s               Alias for sync
 
 EXAMPLES:
   $SCRIPT_NAME                    # Interactive menu
   $SCRIPT_NAME install            # Symlinks + packages (no git)
-  $SCRIPT_NAME -i                 # Same as install
-  $SCRIPT_NAME update             # Pull latest (aborts if dirty)
+  $SCRIPT_NAME i                  # Same as install (preferred short form)
   $SCRIPT_NAME update --stash     # Pull + auto-stash local changes
-  $SCRIPT_NAME -u --stash         # Same as update --stash
-  $SCRIPT_NAME sync               # Pull + reinstall
-  $SCRIPT_NAME -d                 # Run health check
+  $SCRIPT_NAME u --stash          # Same as above
+  $SCRIPT_NAME d                  # Run health check
   $SCRIPT_NAME profile full       # Switch to full profile
   DOTFILES_PROFILE=full $SCRIPT_NAME install
 
@@ -1449,25 +1445,28 @@ parse_args() {
             ;;
     esac
 
-    # Parse commands
+    # Parse commands. Each command accepts:
+    #   - full name:  dotfiles install
+    #   - one-letter: dotfiles i             (subcommand style — preferred)
+    #   - dash-flag:  dotfiles -i            (legacy, kept for muscle memory)
     case "$command" in
-        ""|install|-i)
+        ""|install|i|-i)
             if is_interactive && [[ -z "$command" ]]; then
                 interactive_menu
             else
                 install_dotfiles
             fi
             ;;
-        update|-u)
+        update|u|-u)
             update_dotfiles "${2:-}"
             ;;
-        sync|-s)
+        sync|s|-s)
             sync_dotfiles "${2:-}"
             ;;
-        clean|-c)
+        clean|c|-c)
             clean_dotfiles "${2:-}"
             ;;
-        doctor|-d)
+        doctor|d|-d)
             doctor_dotfiles
             ;;
         uninstall)
