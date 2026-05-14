@@ -465,6 +465,12 @@ link_directory_files() {
     local source_dir="$1"
     local target_prefix="$2"
     local subsection_title="$3"
+    # 4th arg: "files" = link only regular files (skip directories).
+    # Used for repo-root → $HOME so we don't symlink whole dirs like bin/,
+    # zsh/, config/ into $HOME. Default (empty) accepts files AND dirs,
+    # which is correct for config/* → ~/.config/* where dir-symlinks are
+    # the intent (e.g. sheldon/ → ~/.config/sheldon/).
+    local only_files="${4:-}"
 
     [[ ! -d "$source_dir" ]] && return 0
 
@@ -480,9 +486,14 @@ link_directory_files() {
         local target="$target_prefix$name"
 
         # Caller-provided exclusions via DOTFILES_CONFIG_EXCLUDE (colon-delimited).
-        # Same format as check_directory_symlinks and remove_symlinks_from_dir use.
         if [[ -n "${DOTFILES_CONFIG_EXCLUDE:-}" ]] && \
            [[ ":${DOTFILES_CONFIG_EXCLUDE}:" == *":${name}:"* ]]; then
+            continue
+        fi
+
+        # Files-only mode: skip directories entirely
+        if [[ "$only_files" == "files" && -d "$item" ]]; then
+            _dotfiles_log_debug "Skipping directory '$name' (files-only mode)"
             continue
         fi
 
@@ -509,8 +520,10 @@ create_symlinks() {
     _dotfiles_log_step "Creating symlinks..."
     show_section "Creating symlinks..."
 
-    # Link dotfiles (files in root directory)
-    link_directory_files "$DOTFILES_ROOT" "$HOME/." "Linking dotfiles..."
+    # Link dotfiles — files only, never directories. Folders like bin/,
+    # zsh/, config/, .git/ stay inside the repo; only .zshrc / .tmux.conf /
+    # .p10k.zsh style file dotfiles land in $HOME.
+    link_directory_files "$DOTFILES_ROOT" "$HOME/." "Linking dotfiles..." "files"
 
     # Link config files (skip 'claude' — it lives at ~/.claude, not ~/.config/claude)
     mkdir -p "$HOME/.config"
@@ -978,15 +991,28 @@ clean_dotfiles() {
                 continue
             fi
 
-            # Orphan candidate? Two conditions count as orphan:
+            # Orphan candidate? Three conditions count as orphan:
             #   1. Target is missing (file deleted from repo)
             #   2. Basename matches EXCLUDE_PATTERNS — e.g. ~/README.md left
             #      over from before that name landed in the exclude list.
-            local _basename
+            #   3. The symlink points to a DIRECTORY in the repo and lives
+            #      directly under $HOME — repo dirs (bin/, zsh/, docs/) must
+            #      never end up as ~/.bin / ~/.zsh / etc.
+            local _basename _basename_stripped
             _basename="$(basename "$link")"
-            if [[ -e "$resolved" ]] && ! should_exclude "$_basename"; then
-                continue
+            # Repo-root → $HOME convention prefixes a leading dot, so the
+            # link is named .Makefile but EXCLUDE_PATTERNS lists Makefile.
+            # Strip one leading dot before matching.
+            _basename_stripped="${_basename#.}"
+            local _is_orphan=false
+            [[ ! -e "$resolved" ]] && _is_orphan=true
+            should_exclude "$_basename" && _is_orphan=true
+            should_exclude "$_basename_stripped" && _is_orphan=true
+            # Directory symlink directly under $HOME pointing into the repo
+            if [[ -d "$resolved" && "$(dirname "$link")" == "$HOME" ]]; then
+                _is_orphan=true
             fi
+            $_is_orphan || continue
 
             ((found++))
             if $force; then
