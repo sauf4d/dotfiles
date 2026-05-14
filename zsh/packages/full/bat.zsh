@@ -9,8 +9,14 @@ pkg_post_install() {
 }
 
 pkg_init() {
-    # Don't clobber a user's pre-existing MANPAGER choice
-    [[ -z "${MANPAGER:-}" ]] && export MANPAGER="sh -c 'col -bx | bat -l man -p'"
+    # Don't clobber a user's pre-existing MANPAGER choice.
+    # Explicit return 0 — otherwise pkg_init inherits the failed [[ test ]]
+    # exit code when MANPAGER is already set, which init_package_template
+    # interprets as init failure.
+    if [[ -z "${MANPAGER:-}" ]]; then
+        export MANPAGER="sh -c 'col -bx | bat -l man -p'"
+    fi
+    return 0
 }
 
 pkg_doctor() {
