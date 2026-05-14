@@ -87,19 +87,81 @@ _dotfiles_check_installed() {
 # Package lifecycle orchestrator
 # Usage: init_package_template "$PKG_NAME"
 # Reads package variables: PKG_NAME, PKG_DESC, PKG_CMD, PKG_CHECK_FUNC
-# Calls hook functions if defined: pkg_pre_install, pkg_install,
-#   pkg_install_fallback, pkg_post_install, pkg_init
+#
+# Startup-flow hooks (fired automatically by init_package_template):
+#   pkg_pre_install, pkg_install, pkg_install_fallback, pkg_post_install, pkg_init
+#
+# CLI-driven hooks (fired by _dotfiles_invoke_package_hook from bin/dotfiles):
+#   pkg_clean, pkg_doctor, pkg_uninstall
+#
+# Set DOTFILES_HOOK_ONLY=true to load hook function definitions without running
+# the normal install/init orchestrator — used by _dotfiles_invoke_package_hook.
 # -----------------------------------------------------------------------------
 _dotfiles_cleanup_package_hooks() {
     # Properly cleanup hooks with unfunction; silence any Zsh errors
     local h
-    for h in pkg_pre_install pkg_install pkg_install_fallback pkg_post_install pkg_init; do
+    for h in pkg_pre_install pkg_install pkg_install_fallback pkg_post_install pkg_init \
+             pkg_clean pkg_doctor pkg_uninstall; do
         unfunction "$h" 2>/dev/null
     done
-    unset PKG_NAME PKG_DESC PKG_CMD PKG_CHECK_FUNC 2>/dev/null
+    unset PKG_NAME PKG_DESC PKG_CMD PKG_CHECK_FUNC \
+          _PKG_UNINSTALL_ERROR _PKG_UNINSTALL_REMAINING _PKG_UNINSTALL_RECOVERY 2>/dev/null
+}
+
+# -----------------------------------------------------------------------------
+# _dotfiles_invoke_package_hook — source a package file in hook-only mode and
+# invoke a single named hook (pkg_clean, pkg_doctor, pkg_uninstall, etc.).
+#
+# Usage: _dotfiles_invoke_package_hook <package_file_path> <hook_name>
+#
+# Returns:
+#   0   hook ran successfully
+#   1   hook returned non-zero (general failure), OR package file unreadable
+#   2   hook function not defined in this package (reserved — Phase 3 CLI uses
+#       this to distinguish "package has no opinion" from "package failed";
+#       hook authors should avoid returning exactly 2 from their hooks)
+#   N   any other non-zero rc propagated from the hook itself
+#
+# Hooks must use `return`, NOT `exit` — `exit` from a sourced function will
+# terminate the parent shell. The engine cannot enforce this; it's a contract.
+#
+# Always restores hook namespace via _dotfiles_cleanup_package_hooks on exit.
+# -----------------------------------------------------------------------------
+_dotfiles_invoke_package_hook() {
+    local pkg_file="$1" hook_name="$2"
+
+    if [[ ! -r "$pkg_file" ]]; then
+        _dotfiles_log_error "Package file not readable: $pkg_file"
+        return 1
+    fi
+
+    # Hook-only mode prevents init_package_template from running its normal
+    # install/init flow when we source the file — we just want the function defs.
+    local rc=0
+    DOTFILES_HOOK_ONLY=true source "$pkg_file" || {
+        _dotfiles_log_error "Failed to source: $pkg_file"
+        _dotfiles_cleanup_package_hooks
+        unset DOTFILES_HOOK_ONLY
+        return 1
+    }
+
+    if typeset -f "$hook_name" >/dev/null; then
+        "$hook_name"
+        rc=$?
+    else
+        rc=2
+    fi
+
+    _dotfiles_cleanup_package_hooks
+    unset DOTFILES_HOOK_ONLY
+    return $rc
 }
 
 init_package_template() {
+    # CLI hook invocation mode — caller wants just the hook function definitions
+    # (loaded by sourcing the package file). Skip the normal install/init flow.
+    [[ "${DOTFILES_HOOK_ONLY:-false}" == "true" ]] && return 0
+
     # Synchronize initial values
     local package_name="${1:-${PKG_NAME:-}}"
     local package_desc="${PKG_DESC:-}"
