@@ -978,8 +978,15 @@ clean_dotfiles() {
                 continue
             fi
 
-            # Active link — target exists. Leave it alone.
-            [[ -e "$resolved" ]] && continue
+            # Orphan candidate? Two conditions count as orphan:
+            #   1. Target is missing (file deleted from repo)
+            #   2. Basename matches EXCLUDE_PATTERNS — e.g. ~/README.md left
+            #      over from before that name landed in the exclude list.
+            local _basename
+            _basename="$(basename "$link")"
+            if [[ -e "$resolved" ]] && ! should_exclude "$_basename"; then
+                continue
+            fi
 
             ((found++))
             if $force; then
