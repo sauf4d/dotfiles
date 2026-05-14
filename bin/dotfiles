@@ -418,7 +418,8 @@ sync_dotfiles() {
 # Symlink Management
 # =============================================================================
 readonly EXCLUDE_PATTERNS=(
-    "README.md" "CLAUDE.md" ".gitignore" "install" "bin" "config"
+    "README.md" "CLAUDE.md" "ARCHITECT.md" "Makefile"
+    ".gitignore" "install" "bin" "config"
     "zsh" "docs" "zshenv" ".vscode" ".git" "*.zwc" "*.zwc.old"
 )
 
