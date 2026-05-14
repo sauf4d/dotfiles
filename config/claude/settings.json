@@ -1,8 +1,44 @@
 {
-  "skillListingBudgetFraction": 0.025,
+  "agentPushNotifEnabled": false,
+  "awaySummaryEnabled": false,
+  "effortLevel": "high",
+  "enabledPlugins": {
+    "claude-code-setup@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "claude-mem@thedotmack": true,
+    "context7@claude-plugins-official": true,
+    "ecc@everything-claude-code": true,
+    "superpowers@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true
+  },
   "env": {
     "ECC_DISABLED_HOOKS": "pre:config-protection,pre:edit-write:gateguard-fact-force"
   },
+  "extraKnownMarketplaces": {
+    "everything-claude-code": {
+      "autoUpdate": true,
+      "source": {
+        "source": "git",
+        "url": "https://github.com/affaan-m/everything-claude-code.git"
+      }
+    },
+    "thedotmack": {
+      "autoUpdate": true,
+      "source": {
+        "repo": "thedotmack/claude-mem",
+        "source": "github"
+      }
+    },
+    "ui-ux-pro-max-skill": {
+      "autoUpdate": true,
+      "source": {
+        "repo": "nextlevelbuilder/ui-ux-pro-max-skill",
+        "source": "github"
+      }
+    }
+  },
+  "inputNeededNotifEnabled": true,
+  "model": "opus",
   "permissions": {
     "allow": [
       "Bash(ls:*)",
@@ -19,47 +55,11 @@
     ],
     "defaultMode": "auto"
   },
-  "statusLine": {
-    "type": "command",
-    "command": "bash $HOME/.claude/statusline.sh"
-  },
-  "enabledPlugins": {
-    "claude-code-setup@claude-plugins-official": true,
-    "claude-md-management@claude-plugins-official": true,
-    "claude-mem@thedotmack": true,
-    "context7@claude-plugins-official": true,
-    "ecc@everything-claude-code": true,
-    "superpowers@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true
-  },
-  "extraKnownMarketplaces": {
-    "everything-claude-code": {
-      "source": {
-        "source": "git",
-        "url": "https://github.com/affaan-m/everything-claude-code.git"
-      },
-      "autoUpdate": true
-    },
-    "thedotmack": {
-      "source": {
-        "source": "github",
-        "repo": "thedotmack/claude-mem"
-      },
-      "autoUpdate": true
-    },
-    "ui-ux-pro-max-skill": {
-      "source": {
-        "source": "github",
-        "repo": "nextlevelbuilder/ui-ux-pro-max-skill"
-      },
-      "autoUpdate": true
-    }
-  },
-  "effortLevel": "high",
-  "awaySummaryEnabled": false,
   "preferredNotifChannel": "auto",
-  "inputNeededNotifEnabled": true,
-  "agentPushNotifEnabled": false,
+  "skillListingBudgetFraction": 0.025,
   "skipAutoPermissionPrompt": true,
-  "model": "haiku"
+  "statusLine": {
+    "command": "bash $HOME/.claude/statusline.sh",
+    "type": "command"
+  }
 }
