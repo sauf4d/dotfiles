@@ -9,7 +9,8 @@ pkg_post_install() {
 }
 
 pkg_init() {
-    export MANPAGER="sh -c 'col -bx | bat -l man -p'"
+    # Don't clobber a user's pre-existing MANPAGER choice
+    [[ -z "${MANPAGER:-}" ]] && export MANPAGER="sh -c 'col -bx | bat -l man -p'"
 }
 
 pkg_doctor() {

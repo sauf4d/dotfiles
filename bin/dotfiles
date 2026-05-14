@@ -1152,22 +1152,24 @@ _iter_profile_packages() {
 # populate its failure-summary table. Unset between packages.
 _dispatch_pkg_hook() {
     local pkg_file="$1" hook_name="$2"
-    local report_file="" extra_env=""
+    local report_file=""
 
     if [[ "$hook_name" == "pkg_uninstall" ]]; then
         report_file="$(mktemp)" || report_file=""
-        [[ -n "$report_file" ]] && extra_env="export _PKG_UNINSTALL_REPORT_FILE=\"$report_file\""
     fi
 
-    zsh -c "
-        export DOTFILES_ROOT=\"$DOTFILES_ROOT\"
-        export DOTFILES_VERBOSE=\"${DOTFILES_VERBOSE:-false}\"
-        $extra_env
-        source \"$DOTFILES_ROOT/zsh/lib/log.sh\"
-        source \"$DOTFILES_ROOT/zsh/lib/platform.zsh\"
-        source \"$DOTFILES_ROOT/zsh/lib/installer.zsh\"
-        _dotfiles_invoke_package_hook \"$pkg_file\" \"$hook_name\"
-    "
+    # Pass all values through env + positional args — NEVER string-interpolate
+    # them into the zsh -c script body. A DOTFILES_ROOT path with a space or
+    # quote would otherwise corrupt or inject the dispatch.
+    DOTFILES_ROOT="$DOTFILES_ROOT" \
+    DOTFILES_VERBOSE="${DOTFILES_VERBOSE:-false}" \
+    _PKG_UNINSTALL_REPORT_FILE="$report_file" \
+    zsh -c '
+        source "$DOTFILES_ROOT/zsh/lib/log.sh"
+        source "$DOTFILES_ROOT/zsh/lib/platform.zsh"
+        source "$DOTFILES_ROOT/zsh/lib/installer.zsh"
+        _dotfiles_invoke_package_hook "$1" "$2"
+    ' _dispatch_pkg_hook "$pkg_file" "$hook_name"
     local rc=$?
 
     # Read failure vars from the report file into bash scope
@@ -1469,7 +1471,7 @@ handle_profile_command() {
     local new_profile="$1"
 
     if [[ -z "$new_profile" ]]; then
-        _dotfiles_log_error "Profile name required. Usage: $SCRIPT_NAME profile <minimal|server>"
+        _dotfiles_log_error "Profile name required. Usage: $SCRIPT_NAME profile <core|full>"
         return 1
     fi
 
