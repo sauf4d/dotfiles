@@ -2,8 +2,8 @@
 
 # =============================================================================
 # Shell aliases
-# Tool-specific aliases (ls/eza, cd/zoxide, help/tldr) live in their package
-# files so they are only active when the tool is installed.
+# Tool-specific aliases (ls/eza, cd/zoxide) live in their package files
+# so they are only active when the tool is installed.
 # =============================================================================
 
 # Shell reload

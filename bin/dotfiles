@@ -720,7 +720,7 @@ install_packages() {
             ;;
         full|server)
             echo -e "  ${CYAN}${BULLET}${RESET} tmux, sheldon (core)"
-            echo -e "  ${CYAN}${BULLET}${RESET} bat, fzf, eza, fd, jq, ripgrep, tealdeer, zoxide, vfox"
+            echo -e "  ${CYAN}${BULLET}${RESET} bat, fzf, eza, fd, jq, ripgrep, zoxide, vfox"
             ;;
     esac
 
