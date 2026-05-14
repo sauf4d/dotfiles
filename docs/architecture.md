@@ -44,7 +44,7 @@ Current directory structure:
 │   ├── core/                       # Always-loaded modules, run in numeric order
 │   │   ├── 10-options.zsh          # Shell options (setopt)
 │   │   ├── 20-history.zsh          # History settings + fzf history keybinding
-│   │   ├── 30-completion.zsh       # zstyle declarations only (compinit runs in 00-sheldon.zsh)
+│   │   ├── 30-completion.zsh       # zstyle declarations only (compinit runs in sheldon.zsh)
 │   │   ├── 40-aliases.zsh          # Shell shortcuts (cd, reload); tool aliases live in packages
 │   │   ├── 50-theme.zsh            # Powerlevel10k instant prompt + theme load
 │   │   └── 60-zcompile.zsh         # Background .zwc bytecode compilation
@@ -55,7 +55,7 @@ Current directory structure:
 │   │
 │   └── packages/                   # One .zsh file per tool, grouped by tier
 │       ├── core/
-│       │   ├── 00-sheldon.zsh      # Plugin manager — must load first (order prefix required)
+│       │   ├── sheldon.zsh      # Plugin manager — must load first (order prefix required)
 │       │   └── tmux.zsh
 │       └── full/
 │           ├── bat.zsh
@@ -147,12 +147,13 @@ name — tool name, lowercase, hyphens allowed (e.g. fzf, ripgrep, vfox)
 Files within a tier directory load in **alphabetical order**.
 
 **Ordering contracts:**
-- `core/00-sheldon.zsh` uses a numeric prefix to lock its load position before any
-  other package in the tier. The plugin system depends on this — sheldon must source
-  before anything that registers completions, hooks, or PATH modifications.
-- **Rule**: If a package has a strict load-order requirement, prefix its filename with a
-  two-digit number (`00-` for must-load-first, `99-` for must-load-last). Plain names
-  follow natural alphabetical order.
+- `core/sheldon.zsh` must source before anything that registers completions, hooks, or
+  PATH modifications. It currently loads first by natural alphabetical order (`s < t`
+  for the only other `core/` package, `tmux.zsh`).
+- **Rule**: If a future package would land alphabetically before `sheldon.zsh` and break
+  this dependency, prefix the new package's filename with a two-digit number `99-` to
+  push it after. Or rename sheldon back to `00-sheldon.zsh` to lock its position
+  explicitly. Plain names follow natural alphabetical order.
 - Non-ordered packages in `full/` use plain names — they have no cross-dependencies
   and alphabetical order is acceptable.
 
@@ -382,11 +383,11 @@ Plugin load order:
 | 8 | `powerlevel10k` | No | Prompt theme (loaded immediately) |
 
 **`compinit` ordering**: `compinit` must run **after** `zsh-completions` adds its entries
-to `fpath`. It is called in `00-sheldon.zsh`'s `pkg_init`, immediately after
+to `fpath`. It is called in `sheldon.zsh`'s `pkg_init`, immediately after
 `eval "$(sheldon source)"`. The `zsh/core/30-completion.zsh` file contains only
 `zstyle` declarations — no `compinit` call.
 
-**`.zcompdump` rebuild logic** (in `packages/core/00-sheldon.zsh`'s `pkg_init`):
+**`.zcompdump` rebuild logic** (in `packages/core/sheldon.zsh`'s `pkg_init`):
 ```zsh
 autoload -Uz compinit
 # Rebuild the dump at most once per day; use cached otherwise
@@ -733,8 +734,9 @@ zsh/packages/<tier>/<toolname>.zsh
 
 Filename rules: lowercase, hyphens allowed, no number prefix needed.
 
-**Exception**: If your package must load before or after another package in the same
-tier, prefix with a two-digit number: `00-sheldon.zsh` guarantees first load.
+**Exception**: If your package must load before or after another in the same tier,
+prefix its filename with a two-digit number (`00-` for must-load-first,
+`99-` for must-load-last).
 
 ### Step 3 — Fill in the template
 
@@ -745,6 +747,9 @@ PKG_NAME="toolname"          # Used in log messages and install prompts
 PKG_DESC="Short description" # Shown when the tool is not installed
 # PKG_CMD="toolname"         # Binary to check (defaults to PKG_NAME)
 # PKG_CHECK_FUNC="_toolname_is_installed"  # Use for non-binary tools
+
+# ─── STARTUP-FLOW HOOKS ─────────────────────────────────────────────
+# Fired automatically by init_package_template on shell start.
 
 # Optional: custom existence check (needed when the tool is not a binary)
 # _toolname_is_installed() { [[ -d "$HOME/.toolname" ]]; }
@@ -777,6 +782,55 @@ pkg_init() {
     alias t="toolname"
 }
 
+# ─── CLI-DRIVEN HOOKS ───────────────────────────────────────────────
+# Fired by `dotfiles clean`, `dotfiles doctor`, `dotfiles uninstall`.
+
+# Optional: `dotfiles doctor` dispatches this.
+# Return 0 if healthy; non-zero N to contribute N issues to the summary.
+# Use _dotfiles_log_result for `name: value` lines, _dotfiles_log_dim for hints.
+# pkg_doctor() {
+#     command -v toolname &>/dev/null \
+#         && _dotfiles_log_result "toolname" "$(toolname --version | head -1)" \
+#         || { _dotfiles_log_warning "toolname not on PATH"; return 1; }
+# }
+
+# Optional: `dotfiles clean` dispatches this.
+# Read DOTFILES_CLEAN_FORCE — empty = dry-run mode, "--force" = actually clean.
+# pkg_clean() {
+#     local force="${DOTFILES_CLEAN_FORCE:-}"
+#     local cache="$HOME/.cache/toolname"
+#     [[ -d "$cache" ]] || return 0
+#     if [[ "$force" == "--force" ]]; then rm -rf "$cache"
+#     else _dotfiles_log_detail "toolname: would remove $cache"; fi
+# }
+
+# REQUIRED: `dotfiles uninstall` dispatches this. Must reverse pkg_install.
+# On failure, write ERROR / REMAINING / RECOVERY lines to the temp file the
+# dispatcher exports as $_PKG_UNINSTALL_REPORT_FILE — the CLI reads it back
+# and shows the user concrete manual-recovery instructions.
+pkg_uninstall() {
+    local pkg_mgr; pkg_mgr="$(dotfiles_pkg_manager)"
+    case "$pkg_mgr" in
+        brew) brew uninstall toolname 2>/dev/null || {
+                [[ -n "${_PKG_UNINSTALL_REPORT_FILE:-}" ]] && \
+                    printf 'ERROR=%s\nREMAINING=%s\nRECOVERY=%s\n' \
+                        "brew uninstall toolname failed" \
+                        "/opt/homebrew/Cellar/toolname" \
+                        "brew uninstall --force toolname" \
+                        > "$_PKG_UNINSTALL_REPORT_FILE"
+                return 1
+            } ;;
+        apt)  sudo apt-get remove -y toolname 2>/dev/null || return 1 ;;
+        *)    [[ -n "${_PKG_UNINSTALL_REPORT_FILE:-}" ]] && \
+                  printf 'ERROR=%s\nRECOVERY=%s\n' \
+                      "Unsupported package manager: $pkg_mgr" \
+                      "Uninstall toolname manually" \
+                      > "$_PKG_UNINSTALL_REPORT_FILE"
+              return 1 ;;
+    esac
+    rm -rf "$HOME/.toolname" 2>/dev/null   # also remove user-state created by pkg_post_install
+}
+
 init_package_template "$PKG_NAME"
 ```
 
@@ -799,10 +853,62 @@ for i in 1 2 3; do time zsh -i -c exit; done
 
 ### Rules
 
-- **All hook functions are optional** — only define what you need
+- **Startup hooks are optional**, **`pkg_uninstall` is REQUIRED** — define what you need; `pkg_uninstall` is non-negotiable
 - **`pkg_init` is synchronous** — keep it under 5ms
 - **`PKG_CMD=""`** — set this when the tool is not a binary; pair with `PKG_CHECK_FUNC`
 - **Never use `curl | sh`** — always download to a temp file and verify a checksum first
+- **Hooks must `return`, not `exit`** — `exit` from a sourced function kills the parent shell
+
+### CLI-driven hooks contract
+
+Three hooks are invoked by `bin/dotfiles` commands, not by shell startup:
+
+| Hook | Triggered by | Required? | Return code |
+|------|--------------|-----------|-------------|
+| `pkg_doctor` | `dotfiles doctor` | Optional | 0 = healthy; N>0 = N issues to add to summary |
+| `pkg_clean` | `dotfiles clean` / `clean --force` | Optional | 0 = OK; non-zero = failure |
+| `pkg_uninstall` | `dotfiles uninstall` | **REQUIRED** | 0 = removed; non-zero = failure (with vars) |
+
+**`pkg_clean` force-mode**: The CLI sets `DOTFILES_CLEAN_FORCE=--force` in the
+environment when the user passes `--force`. Hooks read this env var and dry-run
+otherwise (print what they *would* remove via `_dotfiles_log_detail`).
+
+**`pkg_uninstall` failure-reporting contract** (PRD-locked): on failure, write
+three `KEY=value` lines to the temp file the dispatcher exports as
+`$_PKG_UNINSTALL_REPORT_FILE`, then `return 1`:
+
+| Key | Purpose |
+|-----|---------|
+| `ERROR` | One-line description of what failed |
+| `REMAINING` | Paths/binaries/state still on the machine |
+| `RECOVERY` | Concrete command(s) the user can run manually |
+
+Why a file (not local vars or env exports)? The dispatcher invokes
+`pkg_uninstall` in a zsh subshell — local variables and unexported env vars
+don't cross that boundary. A temp file is the simplest portable channel. The
+dispatcher creates the file, exports the path, reads it back after the hook
+returns, then deletes it.
+
+Pattern in every package:
+
+```zsh
+if ! brew uninstall toolname 2>/dev/null; then
+    [[ -n "${_PKG_UNINSTALL_REPORT_FILE:-}" ]] && \
+        printf 'ERROR=%s\nREMAINING=%s\nRECOVERY=%s\n' \
+            "brew uninstall toolname failed" \
+            "$(command -v toolname 2>/dev/null || echo unknown)" \
+            "brew uninstall --force toolname" \
+            > "$_PKG_UNINSTALL_REPORT_FILE"
+    return 1
+fi
+```
+
+The CLI surfaces these as a per-package failure block in `dotfiles uninstall`'s
+output. Without them, the user sees only the return code and must investigate
+themselves.
+
+**Reference implementation**: `zsh/packages/core/sheldon.zsh` shows the
+canonical shape of all 8 hooks. Copy from there when stuck.
 
 ### Idempotency example (for tools with `eval` init)
 
@@ -833,7 +939,7 @@ Common causes:
 | Symptom | Fix |
 |---------|-----|
 | Heavy tool runs at startup | Move initialization into `pkg_init` and guard with `_DOTFILES_<TOOL>_LOADED` |
-| `compinit` rebuilds every time | The `~/.zcompdump` guard in `00-sheldon.zsh` rebuilds at most once per day; if it still rebuilds, check that `~/.zcompdump` is writable |
+| `compinit` rebuilds every time | The `~/.zcompdump` guard in `sheldon.zsh` rebuilds at most once per day; if it still rebuilds, check that `~/.zcompdump` is writable |
 | Slow git status in prompt | `POWERLEVEL9K_VCS_MAX_INDEX_SIZE_DIRTY=4096` limits dirty-check to repos < 4096 files; increase if needed |
 
 ### Tab completion not working
@@ -849,7 +955,7 @@ If that doesn't help, verify `zsh-completions` is loading before `compinit`:
 echo $fpath | tr ' ' '\n' | grep completions
 ```
 
-The `compinit` call is in `zsh/packages/core/00-sheldon.zsh` and runs **after**
+The `compinit` call is in `zsh/packages/core/sheldon.zsh` and runs **after**
 `eval "$(sheldon source)"`. If completion is broken after adding a new shell plugin,
 check that the plugin adds to `fpath` before `compinit` runs.
 

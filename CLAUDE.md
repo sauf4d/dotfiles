@@ -72,12 +72,15 @@ init_package_template "$PKG_NAME"
 
 ## Naming Conventions
 
-| Symbol | Convention | Example |
+| Symbol | Convention | Trigger |
 |--------|-----------|---------|
-| Package variables | `PKG_NAME`, `PKG_DESC`, `PKG_CMD`, `PKG_CHECK_FUNC` | — |
-| Hook functions | `pkg_init`, `pkg_install`, `pkg_pre_install`, `pkg_post_install`, `pkg_install_fallback` | — |
-| Private helpers (check) | `_<tool>_is_installed` | `_<tool>_is_installed` |
-| Load flag (idempotency) | `_DOTFILES_<TOOL>_LOADED` | `_DOTFILES_VFOX_LOADED` |
+| Package variables | `PKG_NAME`, `PKG_DESC`, `PKG_CMD`, `PKG_CHECK_FUNC` | declared in package file |
+| Hook functions (startup) | `pkg_pre_install`, `pkg_install`, `pkg_install_fallback`, `pkg_post_install`, `pkg_init` | fired by `init_package_template` on shell start |
+| Hook functions (CLI) | `pkg_clean`, `pkg_doctor`, **`pkg_uninstall`** (REQUIRED) | fired by `_dotfiles_invoke_package_hook` from `bin/dotfiles` |
+| Private helpers (check) | `_<tool>_is_installed` | called by `PKG_CHECK_FUNC` |
+| Load flag (idempotency) | `_DOTFILES_<TOOL>_LOADED` (NOT exported) | guards `pkg_init` re-entry |
+
+`pkg_uninstall` is REQUIRED for every package — it is the inverse of `pkg_install` and the engine treats a missing one as an incomplete package. The other CLI-driven hooks (`pkg_clean`, `pkg_doctor`) are optional; missing hooks are silently skipped.
 
 ---
 
@@ -137,12 +140,21 @@ source ~/.zshrc
 4. **Using `command -v` for shell-function tools** — Tools like `nvm` are not
    binaries. Set `PKG_CHECK_FUNC` to a custom function, or `command -v` will always fail.
 
-5. **Adding a package that sorts before `00-sheldon.zsh`** — Files in `zsh/packages/core/`
-   load alphabetically. Any new file starting with `a`–`n` would load before sheldon and
-   break the plugin system. Prefix with a number (`00-`) if strict ordering is required.
+5. **Adding a package that sorts before `sheldon.zsh`** — Files in `zsh/packages/core/`
+   load alphabetically. `sheldon.zsh` currently loads first by natural order (`s < t`).
+   Any new file starting with `a`–`r` would load before sheldon and break the plugin
+   system. Either prefix the new file with `99-` (loads last) or rename sheldon back to
+   `00-sheldon.zsh` to lock its position explicitly.
 
 6. **Bare `curl | bash` in `pkg_install_fallback`** — Always download to a temp file and
    verify a checksum before executing. See `docs/architecture.md` for the safe pattern.
+
+7. **Forgetting `pkg_uninstall`** — The engine treats a missing `pkg_uninstall` as a hard
+   error during `dotfiles uninstall`. Every package must implement it as the exact reversal
+   of `pkg_install` (OS-aware). On failure, write `ERROR=...`, `REMAINING=...`, and
+   `RECOVERY=...` lines to `$_PKG_UNINSTALL_REPORT_FILE` (the dispatcher exports it) before
+   `return 1` — the user then sees concrete manual-recovery instructions. See
+   `zsh/packages/core/sheldon.zsh` for the canonical shape.
 
 ---
 
