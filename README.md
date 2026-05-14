@@ -1,164 +1,136 @@
-# Dotfiles – Fast, profile-based setup
+# dotfiles
 
-Clean, cross-platform dotfiles with profile-based installs and a simple, extensible package system.
+A cross-platform, profile-based zsh configuration system for macOS and common Linux
+distributions. Shell startup stays under 200ms by deferring heavy work via sheldon and
+using idempotency guards to skip already-active initialization.
+
+---
 
 ## Install
 
 ```bash
-# Interactive (recommended)
-bash <(curl -fsSL https://tinyurl.com/get-dotfiles)
-
-# Non-interactive
-curl -fsSL https://tinyurl.com/get-dotfiles | DOTFILES_PROFILE=full bash
+curl --proto '=https' --tlsv1.2 -fsSL \
+  https://raw.githubusercontent.com/ved0el/dotfiles/main/bin/dotfiles \
+  -o /tmp/dotfiles-install.sh
+bash /tmp/dotfiles-install.sh
 ```
+
+Or clone and run directly:
+
+```bash
+git clone https://github.com/ved0el/dotfiles.git ~/.dotfiles
+~/.dotfiles/bin/dotfiles install
+```
+
+After install, reload: `exec zsh`
+
+---
 
 ## Profiles
 
-Profiles are cumulative — each includes everything below it.
+Profiles are cumulative: `full` includes everything in `core`.
 
 | Profile | Tools |
 |---------|-------|
-| `core`  | sheldon, tmux |
-| `full`  | core + bat, eza, fd, fzf, jq, ripgrep, tealdeer, zoxide, vfox |
+| `core`  | sheldon (plugin manager), tmux |
+| `full`  | everything in core + bat, eza, fd, fzf, jq, ripgrep, tealdeer, vfox, zoxide |
 
-Legacy names `minimal` / `server` work as aliases for one release —
-auto-migrated to `core` / `full` on next `dotfiles install`.
+The active profile is stored in `~/.zshenv` and read by every zsh instance.
 
-Switch profile anytime:
+Switch profiles:
 
 ```bash
 dotfiles profile full
+exec zsh
 ```
 
-## Project structure
+Legacy names `minimal` (→ `core`) and `server` (→ `full`) are accepted and
+auto-migrated on next `dotfiles install`.
 
+---
+
+## CLI reference
+
+Run `dotfiles` with no arguments in an interactive terminal to open the menu.
+
+| Command | Short | Description |
+|---------|-------|-------------|
+| `install` | `-i` | Symlink configs + install packages. Does not pull from git. On a fresh machine, clones the repo first. |
+| `update [--stash]` | `-u` | `git pull --rebase`. Aborts on dirty tree unless `--stash` is passed. |
+| `sync [--stash]` | `-s` | `update` then `install` in one step. |
+| `link` | — | Create or refresh symlinks only. |
+| `packages` | — | Install packages for the active profile only. |
+| `profile <name>` | — | Change active profile (`core` or `full`). Writes to `~/.zshenv`. |
+| `clean [--force]` | `-c` | Report orphaned symlinks pointing into the repo (dry-run). Pass `--force` to remove. |
+| `doctor` | `-d` | Read-only health check. Exit code = number of issues found. |
+| `uninstall` | — | Remove all symlinks, packages, and the repo directory. Interactive prompt unless stdin is non-TTY. |
+| `version` | — | Print version info. |
+| `help` | `-h` | Print usage. |
+
+Global options (may be placed before any command):
+
+| Flag | Description |
+|------|-------------|
+| `-v`, `--verbose` | Enable verbose output for this invocation only. |
+| `-h`, `--help` | Show usage. |
+
+---
+
+## Environment variables
+
+These live in `~/.zshenv` and are written by `dotfiles install` / `dotfiles profile`.
+An env-passed value always wins over the saved default — the file uses
+`${VAR:-saved_value}` syntax so shell-level overrides work without editing the file.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `DOTFILES_ROOT` | `~/.dotfiles` | Path to this repo. |
+| `DOTFILES_PROFILE` | `core` | Active profile (`core` or `full`). |
+| `DOTFILES_VERBOSE` | `false` | Verbose shell startup + CLI details when `true`. |
+
+Override for a single run without saving:
+
+```bash
+DOTFILES_VERBOSE=true dotfiles doctor
+DOTFILES_PROFILE=full dotfiles install
 ```
-~/.dotfiles/
-├── zsh/
-│   ├── core/           # Always-loaded modules (options, history, completion, aliases, theme, zcompile)
-│   ├── lib/            # Shared libraries (platform, installer)
-│   └── packages/
-│       ├── core/       # sheldon, tmux
-│       └── full/       # bat, eza, fd, fzf, jq, ripgrep, tealdeer, zoxide, vfox
-├── bin/
-│   └── dotfiles        # CLI (bash)
-├── config/             # App configs (sheldon, bat, tealdeer, ripgrep, yabai, skhd)
-├── docs/               # Architecture, requirements, guides
-├── zshrc               # Shell entry point (~40 lines)
-├── zshenv              # Env var template (not symlinked — CLI manages ~/.zshenv)
-└── tmux.conf
-```
 
-## Package system
+---
 
-Each tool is a single self-contained `.zsh` file in `zsh/packages/<tier>/`. No other file changes when adding a package.
+## Adding a tool
+
+Create one file: `zsh/packages/<tier>/<toolname>.zsh`. The file declares hook
+functions and calls `init_package_template "$PKG_NAME"` at the end. No other file
+needs to change.
 
 ```zsh
-#!/usr/bin/env zsh
-
 PKG_NAME="mytool"
-PKG_DESC="Short description"
-
-pkg_install() {
-    brew install mytool   # Optional: override OS package manager
-}
+PKG_DESC="What it does"
 
 pkg_init() {
-    export MYTOOL_OPTS="--fast"
-    alias mt="mytool"
+    alias mt="mytool --flag"
 }
 
 init_package_template "$PKG_NAME"
 ```
 
-See [`docs/architecture.md#appendix-b-adding-a-package`](docs/architecture.md#appendix-b-adding-a-package) for the full lifecycle reference.
+See [ARCHITECT.md](ARCHITECT.md) for the full 8-hook contract and a complete annotated
+example.
 
-## CLI commands
-
-```bash
-dotfiles                  # interactive menu
-dotfiles install          # install all packages for current profile
-dotfiles link             # create/recreate symlinks
-dotfiles verify           # check symlinks + report missing packages
-dotfiles profile full     # switch profile (persists across sessions)
-dotfiles update           # pull latest changes
-dotfiles uninstall        # remove symlinks and config
-```
-
-## Environment variables
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `DOTFILES_ROOT` | `~/.dotfiles` | Repository location |
-| `DOTFILES_PROFILE` | `core` | Active profile |
-| `DOTFILES_VERBOSE` | `false` | Enable verbose output |
+---
 
 ## Troubleshooting
 
-See [`docs/architecture.md#appendix-c-troubleshooting`](docs/architecture.md#appendix-c-troubleshooting) for common issues.
+Run `dotfiles doctor` first. It checks required tools, repo state, symlink integrity,
+mise leftovers, and per-package health.
 
-Quick checks:
+| Symptom | Fix |
+|---------|-----|
+| Required tool missing (`git`, `curl`, `zsh` not in PATH) | Install via system package manager, then `dotfiles install`. |
+| Orphaned symlinks | `dotfiles clean` (dry-run shows what), then `dotfiles clean --force`. |
+| `mise` leftovers (`~/.local/share/mise`, `~/.config/mise`) | `dotfiles clean --force` — vfox's `pkg_clean` hook removes them. |
 
-```bash
-# Shell startup time
-for i in 1 2 3; do time zsh -i -c exit; done
+---
 
-# Check what's missing
-dotfiles verify
-
-# Force completion rebuild
-rm -f ~/.zcompdump && exec zsh
-```
-
-## Windows
-
-Windows uses a small `Makefile` to sync `config/<tool>/` into `~/.config/<tool>/`
-(and `config/claude/<file>` into `~/.claude/<file>`). `bin/dotfiles` is for
-macOS/Linux only — the `Makefile` hard-fails on those platforms.
-
-Runs from **PowerShell, cmd, or Git Bash** — recipes are forced through Git
-Bash regardless of host shell, so all three behave identically.
-
-One-time setup:
-
-1. Enable **Developer Mode** (Settings → Privacy & security → For developers).
-   Lets `ln -s` create real Windows symlinks without admin.
-2. Install Git for Windows and GNU Make via Scoop:
-   ```powershell
-   scoop install make git
-   ```
-   (Git for Windows ships the bash recipes need; the Makefile auto-discovers
-   it via `git --exec-path`.)
-
-Daily use:
-
-```bash
-make            # list targets
-make link       # create / refresh all config symlinks (idempotent)
-make verify     # report OK / MISSING / STALE / CONFLICT for every expected link
-make unlink     # remove every symlink we created (only touches symlinks)
-```
-
-`link` first probes whether real symlinks can be created in this shell and
-bails with `cannot link` if they can't (e.g. Developer Mode is disabled).
-It also refuses to clobber a real file at the target — prints `SKIP` so you
-can rename or delete it manually first.
-
-## Documentation
-
-- [Architecture](docs/architecture.md) — system design, lifecycle, internals
-- [Appendix A: Requirements](docs/architecture.md#appendix-a-system-requirements) — functional and non-functional spec
-- [Appendix B: Adding a package](docs/architecture.md#appendix-b-adding-a-package) — extension guide
-- [Appendix C: Troubleshooting](docs/architecture.md#appendix-c-troubleshooting) — common issues
-
-## Contributing
-
-Pull requests welcome. Please:
-
-1. Open an issue first for non-trivial changes.
-2. Add or update tests where applicable.
-3. Run `dotfiles verify` and confirm `time zsh -i -c exit` stays under 200 ms.
-
-## License
-
-Released under the MIT License.
+See [CLAUDE.md](CLAUDE.md) for contributor and AI-agent guidance.
+See [ARCHITECT.md](ARCHITECT.md) for architecture and package contract details.
