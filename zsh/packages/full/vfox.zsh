@@ -43,6 +43,31 @@ EOF
     fi
 }
 
+# Resolve `@latest` to the newest stable version (filters pre-releases).
+# Some vfox plugins (notably vfox-python) treat `@latest` literally as
+# "newest available", which includes betas/RCs. We re-resolve here by
+# scanning `vfox search` output and picking the first version whose
+# string doesn't carry a pre-release marker.
+#
+# Recognised pre-release markers (case-insensitive): alpha, beta, rc, dev,
+# pre, and the `b<digit>` short-form used by vfox-python (e.g. 3.15.0b1t).
+_vfox_resolve_latest_stable() {
+    local plugin="$1"
+    vfox search "$plugin" 2>/dev/null \
+      | awk '
+          /^ - / {
+              # Strip leading " - ", take first whitespace-delimited token.
+              gsub(/^ - /, "")
+              split($0, parts, " ")
+              v = parts[1]
+              # Skip if any common pre-release marker matches.
+              if (tolower(v) ~ /(alpha|beta|rc|dev|pre|b[0-9])/) next
+              print v
+              exit
+          }
+      '
+}
+
 pkg_post_install() {
     command -v vfox &>/dev/null || return 0
 
@@ -52,7 +77,7 @@ pkg_post_install() {
         return 0
     fi
 
-    local line plugin version
+    local line plugin version resolved
     while IFS= read -r line || [[ -n "$line" ]]; do
         # Skip blank lines and comments
         [[ -z "$line" || "$line" == \#* ]] && continue
@@ -72,6 +97,18 @@ pkg_post_install() {
                 _dotfiles_log_warning "vfox: failed to add plugin $plugin (skipping)"
                 continue
             }
+        fi
+
+        # Resolve @latest to a concrete stable version. This must happen
+        # AFTER `vfox add` so the plugin is available to search.
+        if [[ "$version" == "latest" ]]; then
+            resolved="$(_vfox_resolve_latest_stable "$plugin")"
+            if [[ -z "$resolved" ]]; then
+                _dotfiles_log_warning "vfox: no stable version found for $plugin (skipping)"
+                continue
+            fi
+            _dotfiles_log_info "vfox: $plugin@latest -> $resolved"
+            version="$resolved"
         fi
 
         _dotfiles_log_info "vfox: installing $plugin@$version"
