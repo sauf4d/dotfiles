@@ -867,8 +867,14 @@ uninstall_dotfiles() {
         case $rc in
             0) _dotfiles_log_result "$pkg_name" "uninstalled" ;;
             2) _dotfiles_log_error "$pkg_name: pkg_uninstall is REQUIRED but missing"
-               failed_pkgs+=("$pkg_name|missing|N/A|implement pkg_uninstall in $pkg_file") ;;
-            *) failed_pkgs+=("$pkg_name|rc=$rc|see hook output above|investigate manually") ;;
+               failed_pkgs+=("$pkg_name|pkg_uninstall hook not defined|N/A|implement pkg_uninstall in $pkg_file") ;;
+            *)
+               local _err="${_PKG_UNINSTALL_ERROR:-rc=$rc}"
+               local _rem="${_PKG_UNINSTALL_REMAINING:-see hook output above}"
+               local _rec="${_PKG_UNINSTALL_RECOVERY:-investigate manually}"
+               failed_pkgs+=("$pkg_name|$_err|$_rem|$_rec")
+               unset _PKG_UNINSTALL_ERROR _PKG_UNINSTALL_REMAINING _PKG_UNINSTALL_RECOVERY
+               ;;
         esac
     done
 
@@ -1136,15 +1142,48 @@ _iter_profile_packages() {
 # Run a single package hook via zsh and propagate the helper's exit code.
 # Args: <package_file> <hook_name>
 # Returns: 0=ok, 1=failure, 2=hook not defined, N=propagated from hook
+#
+# For pkg_uninstall hooks: creates a temp report file, exports its path into
+# the subshell via _PKG_UNINSTALL_REPORT_FILE. On failure the hook writes:
+#   ERROR=<message>
+#   REMAINING=<paths still on disk>
+#   RECOVERY=<command to finish manually>
+# The dispatcher reads those into bash-scope vars so uninstall_dotfiles can
+# populate its failure-summary table. Unset between packages.
 _dispatch_pkg_hook() {
     local pkg_file="$1" hook_name="$2"
+    local report_file="" extra_env=""
+
+    if [[ "$hook_name" == "pkg_uninstall" ]]; then
+        report_file="$(mktemp)" || report_file=""
+        [[ -n "$report_file" ]] && extra_env="export _PKG_UNINSTALL_REPORT_FILE=\"$report_file\""
+    fi
+
     zsh -c "
         export DOTFILES_ROOT=\"$DOTFILES_ROOT\"
         export DOTFILES_VERBOSE=\"${DOTFILES_VERBOSE:-false}\"
+        $extra_env
         source \"$DOTFILES_ROOT/zsh/lib/log.sh\"
+        source \"$DOTFILES_ROOT/zsh/lib/platform.zsh\"
         source \"$DOTFILES_ROOT/zsh/lib/installer.zsh\"
         _dotfiles_invoke_package_hook \"$pkg_file\" \"$hook_name\"
     "
+    local rc=$?
+
+    # Read failure vars from the report file into bash scope
+    if [[ -n "$report_file" && -f "$report_file" && $rc -ne 0 ]]; then
+        local _line _key _val
+        while IFS='=' read -r _key _val; do
+            case "$_key" in
+                ERROR)     _PKG_UNINSTALL_ERROR="$_val" ;;
+                REMAINING) _PKG_UNINSTALL_REMAINING="$_val" ;;
+                RECOVERY)  _PKG_UNINSTALL_RECOVERY="$_val" ;;
+            esac
+        done < "$report_file"
+    fi
+    [[ -n "$report_file" ]] && rm -f "$report_file"
+
+    return $rc
 }
 
 # =============================================================================
