@@ -337,8 +337,12 @@ clone_repository_if_missing() {
 # path on conflict.
 # -----------------------------------------------------------------------------
 update_dotfiles() {
-    local do_stash=false
-    [[ "${1:-}" == "--stash" ]] && do_stash=true
+    local do_stash=false no_reload=false
+    local _arg
+    for _arg in "$@"; do
+        [[ "$_arg" == "--stash" ]]     && do_stash=true
+        [[ "$_arg" == "--no-reload" ]] && no_reload=true
+    done
 
     if [[ ! -d "$DOTFILES_ROOT/.git" ]]; then
         _dotfiles_log_error "Not a git repository: $DOTFILES_ROOT"
@@ -417,14 +421,18 @@ update_dotfiles() {
         fi
     fi
 
-    _dotfiles_log_summary "Updated to $(git rev-parse --short HEAD). Run: dotfiles install (or 'dotfiles sync')"
+    _dotfiles_log_summary "Updated to $(git rev-parse --short HEAD)."
+
+    $no_reload && return 0
+    cd "${_ORIG_PWD:-$HOME}"
+    [[ "${DOTFILES_WRAPPER:-}" != "1" ]] && exec zsh
 }
 
 # -----------------------------------------------------------------------------
 # Sync — update + reinstall in one go
 # -----------------------------------------------------------------------------
 sync_dotfiles() {
-    update_dotfiles "${1:-}" && install_dotfiles
+    update_dotfiles "${1:-}" --no-reload && install_dotfiles
 }
 
 # =============================================================================
@@ -751,8 +759,6 @@ install_packages() {
             ;;
     esac
 
-    echo
-    echo -e "  ${YELLOW}→${RESET} Reload your shell to activate: ${BOLD}exec zsh${RESET}"
 }
 
 # =============================================================================
@@ -828,13 +834,17 @@ install_dotfiles() {
         _dotfiles_log_success "Profile '$DOTFILES_PROFILE' is active"
     fi
 
-    # Step 6: Source a new zsh shell (always)
+    # Step 6: Reload shell. Restore original CWD first so the replacement
+    # shell starts where the user was, not in DOTFILES_ROOT.
     echo
+    cd "${_ORIG_PWD:-$HOME}"
     if command -v zsh &>/dev/null; then
-        _dotfiles_log_info "Starting new zsh shell..."
-        exec zsh -l
+        # When called via the zsh wrapper function, the wrapper does exec zsh
+        # in the parent process (replacing the user's actual shell). Skip here
+        # to avoid creating a redundant child shell.
+        [[ "${DOTFILES_WRAPPER:-}" != "1" ]] && exec zsh
     else
-        _dotfiles_log_warning "zsh not found, please restart your terminal manually"
+        _dotfiles_log_warning "zsh not found — restart your terminal manually"
     fi
 }
 
@@ -1431,6 +1441,9 @@ EOF
 # Initialize script environment
 init_script() {
     readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    # Captured before any cd; restored before exec zsh so the replacement
+    # shell starts in the user's original directory, not DOTFILES_ROOT.
+    _ORIG_PWD="$PWD"
 
     # Load existing configuration and set defaults
     load_config
