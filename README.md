@@ -9,7 +9,7 @@ Clean, cross-platform dotfiles with profile-based installs and a simple, extensi
 bash <(curl -fsSL https://tinyurl.com/get-dotfiles)
 
 # Non-interactive
-curl -fsSL https://tinyurl.com/get-dotfiles | DOTFILES_PROFILE=server bash
+curl -fsSL https://tinyurl.com/get-dotfiles | DOTFILES_PROFILE=full bash
 ```
 
 ## Profiles
@@ -18,13 +18,16 @@ Profiles are cumulative — each includes everything below it.
 
 | Profile | Tools |
 |---------|-------|
-| `minimal` | sheldon, tmux |
-| `server` | minimal + bat, eza, fd, fzf, jq, ripgrep, tealdeer, zoxide, vfox |
+| `core`  | sheldon, tmux |
+| `full`  | core + bat, eza, fd, fzf, jq, ripgrep, tealdeer, zoxide, vfox |
+
+Legacy names `minimal` / `server` work as aliases for one release —
+auto-migrated to `core` / `full` on next `dotfiles install`.
 
 Switch profile anytime:
 
 ```bash
-dotfiles profile server
+dotfiles profile full
 ```
 
 ## Project structure
@@ -35,8 +38,8 @@ dotfiles profile server
 │   ├── core/           # Always-loaded modules (options, history, completion, aliases, theme, zcompile)
 │   ├── lib/            # Shared libraries (platform, installer)
 │   └── packages/
-│       ├── minimal/    # sheldon, tmux
-│       └── server/     # bat, eza, fd, fzf, jq, ripgrep, tealdeer, zoxide, vfox
+│       ├── core/       # sheldon, tmux
+│       └── full/       # bat, eza, fd, fzf, jq, ripgrep, tealdeer, zoxide, vfox
 ├── bin/
 │   └── dotfiles        # CLI (bash)
 ├── config/             # App configs (sheldon, bat, tealdeer, ripgrep, yabai, skhd)
@@ -77,7 +80,7 @@ dotfiles                  # interactive menu
 dotfiles install          # install all packages for current profile
 dotfiles link             # create/recreate symlinks
 dotfiles verify           # check symlinks + report missing packages
-dotfiles profile server   # switch profile (persists across sessions)
+dotfiles profile full     # switch profile (persists across sessions)
 dotfiles update           # pull latest changes
 dotfiles uninstall        # remove symlinks and config
 ```
@@ -87,7 +90,7 @@ dotfiles uninstall        # remove symlinks and config
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `DOTFILES_ROOT` | `~/.dotfiles` | Repository location |
-| `DOTFILES_PROFILE` | `minimal` | Active profile |
+| `DOTFILES_PROFILE` | `core` | Active profile |
 | `DOTFILES_VERBOSE` | `false` | Enable verbose output |
 
 ## Troubleshooting

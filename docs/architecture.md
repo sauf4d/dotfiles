@@ -54,10 +54,10 @@ Current directory structure:
 │   │   └── platform.zsh            # OS/distro detection helpers
 │   │
 │   └── packages/                   # One .zsh file per tool, grouped by tier
-│       ├── minimal/
+│       ├── core/
 │       │   ├── 00-sheldon.zsh      # Plugin manager — must load first (order prefix required)
 │       │   └── tmux.zsh
-│       └── server/
+│       └── full/
 │           ├── bat.zsh
 │           ├── eza.zsh
 │           ├── fd.zsh
@@ -101,8 +101,8 @@ Current directory structure:
   │       Source zsh/lib/platform.zsh   — OS/distro detection
   │
   └── 3. Load packages for active profile:
-          minimal tier:  always loaded
-          server tier:   loaded when DOTFILES_PROFILE = server
+          core tier:  always loaded
+          full tier:  loaded when DOTFILES_PROFILE = full
           │
           Each package file calls init_package_template, which either:
             (a) Tool installed     → run pkg_init
@@ -120,13 +120,16 @@ Current directory structure:
 
 Profiles are **cumulative** — each tier includes all lower tiers:
 
-| Profile   | Tiers loaded | Packages directory |
-|-----------|-------------|-------------------|
-| `minimal` | `minimal`   | `zsh/packages/minimal/` |
-| `server`  | `minimal` + `server` | + `zsh/packages/server/` |
+| Profile | Tiers loaded   | Packages directory |
+|---------|----------------|---------------------|
+| `core`  | `core`         | `zsh/packages/core/` |
+| `full`  | `core` + `full`| + `zsh/packages/full/` |
 
 The profile is read from `$DOTFILES_PROFILE` at shell startup.
-To switch: `dotfiles profile server` (persists to `~/.zshenv`), then `source ~/.zshrc`.
+To switch: `dotfiles profile full` (persists to `~/.zshenv`), then `source ~/.zshrc`.
+
+Legacy names `minimal` (= `core`) and `server` (= `full`) are accepted as aliases
+in zshrc dispatch and auto-migrated to the new names on next `dotfiles install`.
 
 ---
 
@@ -137,20 +140,20 @@ To switch: `dotfiles profile server` (persists to `~/.zshenv`), then `source ~/.
 ```
 zsh/packages/<tier>/<name>.zsh
 
-tier — minimal | server
+tier — core | full
 name — tool name, lowercase, hyphens allowed (e.g. fzf, ripgrep, vfox)
 ```
 
 Files within a tier directory load in **alphabetical order**.
 
 **Ordering contracts:**
-- `minimal/00-sheldon.zsh` uses a numeric prefix to lock its load position before any
+- `core/00-sheldon.zsh` uses a numeric prefix to lock its load position before any
   other package in the tier. The plugin system depends on this — sheldon must source
   before anything that registers completions, hooks, or PATH modifications.
 - **Rule**: If a package has a strict load-order requirement, prefix its filename with a
   two-digit number (`00-` for must-load-first, `99-` for must-load-last). Plain names
   follow natural alphabetical order.
-- Non-ordered packages in `server/` use plain names — they have no cross-dependencies
+- Non-ordered packages in `full/` use plain names — they have no cross-dependencies
   and alphabetical order is acceptable.
 
 ### Package Lifecycle API
@@ -383,7 +386,7 @@ to `fpath`. It is called in `00-sheldon.zsh`'s `pkg_init`, immediately after
 `eval "$(sheldon source)"`. The `zsh/core/30-completion.zsh` file contains only
 `zstyle` declarations — no `compinit` call.
 
-**`.zcompdump` rebuild logic** (in `packages/minimal/00-sheldon.zsh`'s `pkg_init`):
+**`.zcompdump` rebuild logic** (in `packages/core/00-sheldon.zsh`'s `pkg_init`):
 ```zsh
 autoload -Uz compinit
 # Rebuild the dump at most once per day; use cached otherwise
@@ -417,7 +420,7 @@ The CLI is a Bash script. Each subcommand delegates to an internal function.
 
 ### `dotfiles profile <name>`
 
-1. Validates `<name>` is one of `minimal`, `server`
+1. Validates `<name>` is one of `core`, `full` (legacy `minimal`/`server` accepted and auto-migrated)
 2. Updates `DOTFILES_PROFILE=<name>` in `~/.zshenv`:
    - If the line already exists: replaces it with `sed -i`
    - If it does not exist: appends it
@@ -528,10 +531,10 @@ A cross-platform, profile-based zsh configuration system that:
 
 The system must support two cumulative profiles:
 
-| Profile   | Tier | User-facing tools |
-|-----------|------|-------------------|
-| `minimal` | `m`  | tmux |
-| `server`  | `s`  | minimal + bat, fzf, eza, fd, jq, ripgrep, tealdeer, zoxide, vfox |
+| Profile | Tier | User-facing tools |
+|---------|------|-------------------|
+| `core`  | `c`  | tmux |
+| `full`  | `f`  | core + bat, fzf, eza, fd, jq, ripgrep, tealdeer, zoxide, vfox |
 
 > **Note**: `sheldon` (zsh plugin manager) is a **core infrastructure dependency**, not a
 > user-facing tool. It is installed as part of the bootstrap process and loaded before any
@@ -692,7 +695,7 @@ The `bin/dotfiles` command must support these subcommands:
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `DOTFILES_ROOT` | `~/.dotfiles` | Absolute path to the dotfiles repo |
-| `DOTFILES_PROFILE` | `minimal` | Active profile: `minimal` or `server` |
+| `DOTFILES_PROFILE` | `core` | Active profile: `core` or `full` |
 | `DOTFILES_VERBOSE` | `false` | Verbose logging only — does not gate installation |
 | `DOTFILES_INSTALL` | `false` | Run the install flow when set to `true` (set internally by `dotfiles install`) |
 | `DOTFILES_BRANCH` | `main` | Git branch used by `dotfiles update` |
@@ -717,10 +720,10 @@ A package is a single `.zsh` file in `zsh/packages/<tier>/`. No other file needs
 
 | Tier | Directory | When to use |
 |------|-----------|-------------|
-| `minimal` | `zsh/packages/minimal/` | Tools needed even on a bare server |
-| `server` | `zsh/packages/server/` | Productivity tools for any dev/ops machine |
+| `core` | `zsh/packages/core/` | Tools needed even on a bare server |
+| `full` | `zsh/packages/full/` | Productivity tools for any dev/ops machine |
 
-Profiles are cumulative: `server` includes `minimal`.
+Profiles are cumulative: `full` includes `core`.
 
 ### Step 2 — Create the package file
 
@@ -846,7 +849,7 @@ If that doesn't help, verify `zsh-completions` is loading before `compinit`:
 echo $fpath | tr ' ' '\n' | grep completions
 ```
 
-The `compinit` call is in `zsh/packages/minimal/00-sheldon.zsh` and runs **after**
+The `compinit` call is in `zsh/packages/core/00-sheldon.zsh` and runs **after**
 `eval "$(sheldon source)"`. If completion is broken after adding a new shell plugin,
 check that the plugin adds to `fpath` before `compinit` runs.
 
@@ -897,9 +900,9 @@ dotfiles link
 ### Profile not switching
 
 ```zsh
-dotfiles profile server
+dotfiles profile full
 source ~/.zshrc
-echo $DOTFILES_PROFILE  # should be "server"
+echo $DOTFILES_PROFILE  # should be "full"
 ```
 
 If the profile reverts after restarting zsh, check that `~/.zshenv` has the right value:

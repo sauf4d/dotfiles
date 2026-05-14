@@ -15,7 +15,7 @@ set -euo pipefail
 # Configuration & Constants
 # =============================================================================
 readonly DEFAULT_ROOT="$HOME/.dotfiles"
-readonly DEFAULT_PROFILE="minimal"
+readonly DEFAULT_PROFILE="core"
 readonly DEFAULT_VERBOSE="false"
 readonly SCRIPT_NAME="dotfiles"
 
@@ -80,9 +80,9 @@ extract_config_value() {
 # Source the POSIX log library. DOTFILES_ROOT may not be set yet (we're before
 # init_script), so fall back to a hard-coded default that matches the install
 # pattern.
-_DF_LIB="${DOTFILES_ROOT:-$HOME/.dotfiles}/zsh/lib/_log.sh"
+_DF_LIB="${DOTFILES_ROOT:-$HOME/.dotfiles}/zsh/lib/log.sh"
 if [[ -f "$_DF_LIB" ]]; then
-    # shellcheck source=../zsh/lib/_log.sh
+    # shellcheck source=../zsh/lib/log.sh
     . "$_DF_LIB"
 else
     # Last-resort fallback — _log.sh not present (fresh-machine bootstrap or
@@ -123,7 +123,7 @@ is_verbose() {
 # Validate profile value (returns 0 if valid, 1 if invalid)
 validate_profile() {
     local profile="$1"
-    local valid_profiles=("minimal" "server")
+    local valid_profiles=("core" "full")
 
     for valid_profile in "${valid_profiles[@]}"; do
         [[ "$profile" == "$valid_profile" ]] && return 0
@@ -163,11 +163,27 @@ show_subsection() {
 # =============================================================================
 # Configuration Management
 # =============================================================================
-# Set default values for all dotfiles variables
+# Set default values for all dotfiles variables.
+# Also runs a one-time migration: legacy profile names (minimal/server) are
+# upgraded to their replacements (core/full) and persisted to ~/.zshenv.
+# Order matters: init_script calls load_config BEFORE set_defaults, so the
+# legacy value (if any) is already exported by the time this runs.
 set_defaults() {
     export DOTFILES_ROOT="${DOTFILES_ROOT:-$DEFAULT_ROOT}"
     export DOTFILES_PROFILE="${DOTFILES_PROFILE:-$DEFAULT_PROFILE}"
     export DOTFILES_VERBOSE="${DOTFILES_VERBOSE:-$DEFAULT_VERBOSE}"
+
+    # One-time profile-name migration (legacy → new). save_config persists.
+    local _migrated_profile=""
+    case "${DOTFILES_PROFILE:-}" in
+        minimal) _migrated_profile="core" ;;
+        server)  _migrated_profile="full" ;;
+    esac
+    if [[ -n "$_migrated_profile" ]]; then
+        _dotfiles_log_warning "DOTFILES_PROFILE '${DOTFILES_PROFILE}' migrated to '${_migrated_profile}' — saved to ${CONFIG_FILE}"
+        export DOTFILES_PROFILE="$_migrated_profile"
+        save_config
+    fi
 }
 
 load_config() {
@@ -594,9 +610,9 @@ verify_packages() {
 
             typeset -a pkg_dirs
             case "$DOTFILES_PROFILE" in
-                minimal) pkg_dirs=("$DOTFILES_ROOT/zsh/packages/minimal") ;;
-                *)       pkg_dirs=("$DOTFILES_ROOT/zsh/packages/minimal"
-                                   "$DOTFILES_ROOT/zsh/packages/server") ;;
+                core|minimal) pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core") ;;
+                *)            pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core"
+                                        "$DOTFILES_ROOT/zsh/packages/full") ;;
             esac
 
             for pkg_dir in "$pkg_dirs[@]"; do
@@ -666,9 +682,9 @@ install_packages() {
 
         typeset -a pkg_dirs
         case "$DOTFILES_PROFILE" in
-            minimal) pkg_dirs=("$DOTFILES_ROOT/zsh/packages/minimal") ;;
-            *)       pkg_dirs=("$DOTFILES_ROOT/zsh/packages/minimal"
-                               "$DOTFILES_ROOT/zsh/packages/server") ;;
+            core|minimal) pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core") ;;
+            *)            pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core"
+                                    "$DOTFILES_ROOT/zsh/packages/full") ;;
         esac
 
         for pkg_dir in "$pkg_dirs[@]"; do
@@ -688,11 +704,11 @@ install_packages() {
     echo
     _dotfiles_log_info "Profile '$DOTFILES_PROFILE' includes:"
     case "$DOTFILES_PROFILE" in
-        minimal)
+        core|minimal)
             echo -e "  ${CYAN}${BULLET}${RESET} tmux, sheldon"
             ;;
-        server)
-            echo -e "  ${CYAN}${BULLET}${RESET} tmux, sheldon (minimal)"
+        full|server)
+            echo -e "  ${CYAN}${BULLET}${RESET} tmux, sheldon (core)"
             echo -e "  ${CYAN}${BULLET}${RESET} bat, fzf, eza, fd, jq, ripgrep, tealdeer, zoxide, vfox"
             ;;
     esac
@@ -757,10 +773,10 @@ install_dotfiles() {
         echo
         echo -e "${BOLD}${WHITE}What's Included:${RESET}"
         case "$DOTFILES_PROFILE" in
-            minimal)
+            core|minimal)
                 echo -e "  ${GREEN}${CHECK}${RESET} Shell essentials (zsh, sheldon, tmux)"
                 ;;
-            server)
+            full|server)
                 echo -e "  ${GREEN}${CHECK}${RESET} Shell + utilities + vfox version manager"
                 ;;
         esac
@@ -1009,7 +1025,7 @@ doctor_dotfiles() {
     fi
 
     # 5. vfox status (server profile only)
-    if [[ "${DOTFILES_PROFILE:-}" == "server" ]]; then
+    if [[ "${DOTFILES_PROFILE:-}" == "full" || "${DOTFILES_PROFILE:-}" == "server" ]]; then
         _dotfiles_log_step "Checking vfox SDKs"
         if command -v vfox >/dev/null 2>&1; then
             _dotfiles_log_result "vfox" "$(vfox --version 2>&1 | head -1)"
@@ -1117,7 +1133,7 @@ interactive_menu() {
                 read -r
                 ;;
             9)
-                echo -n "Enter new profile (minimal/server): "
+                echo -n "Enter new profile (core/full): "
                 read -r new_profile
                 if validate_profile "$new_profile" 2>/dev/null; then
                     export DOTFILES_PROFILE="$new_profile"
@@ -1203,7 +1219,7 @@ COMMANDS:
               Exit code = number of issues.
   uninstall   Remove all symlinks, packages config, and the dotfiles directory
   link        Create or refresh symlinks only
-  profile     Change active profile (minimal | server)
+  profile     Change active profile (core | full)
   packages    Install required packages for current profile
   verify      Verify all symlinks resolve correctly
   version     Show version information

@@ -2,7 +2,7 @@
 
 # Bootstrap defaults (overridden by ~/.zshenv values set via 'dotfiles profile')
 export DOTFILES_ROOT="${DOTFILES_ROOT:-$HOME/.dotfiles}"
-export DOTFILES_PROFILE="${DOTFILES_PROFILE:-minimal}"
+export DOTFILES_PROFILE="${DOTFILES_PROFILE:-core}"
 export DOTFILES_VERBOSE="${DOTFILES_VERBOSE:-false}"
 
 # Validate environment
@@ -23,14 +23,18 @@ unset _f
 source "$DOTFILES_ROOT/zsh/lib/platform.zsh"
 source "$DOTFILES_ROOT/zsh/lib/installer.zsh"
 
-# Load packages for active profile (cumulative: minimal ⊆ server)
+# Load packages for active profile (cumulative: core ⊆ full)
+# `minimal` and `server` accepted as legacy aliases for one release —
+# auto-migrated to `core`/`full` by bin/dotfiles' set_defaults on next install.
 typeset -a _pkg_dirs
 case "${DOTFILES_PROFILE}" in
-    minimal) _pkg_dirs=("$DOTFILES_ROOT/zsh/packages/minimal") ;;
-    server)  _pkg_dirs=("$DOTFILES_ROOT/zsh/packages/minimal" "$DOTFILES_ROOT/zsh/packages/server") ;;
+    core|minimal)
+        _pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core") ;;
+    full|server)
+        _pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core" "$DOTFILES_ROOT/zsh/packages/full") ;;
     *)
-        echo "[dotfiles] Unknown profile '${DOTFILES_PROFILE}' — defaulting to minimal. Run: dotfiles profile <minimal|server>" >&2
-        _pkg_dirs=("$DOTFILES_ROOT/zsh/packages/minimal") ;;
+        echo "[dotfiles] Unknown profile '${DOTFILES_PROFILE}' — defaulting to core. Run: dotfiles profile <core|full>" >&2
+        _pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core") ;;
 esac
 for _pkg_dir in "$_pkg_dirs[@]"; do
     for _pkg_file in "$_pkg_dir"/*.zsh(N); do source "$_pkg_file"; done

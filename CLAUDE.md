@@ -5,12 +5,15 @@
 A cross-platform, profile-based zsh configuration system. Ships on macOS and common Linux
 distros. Keeps shell startup under 200ms by deferring heavy work via sheldon and idempotency guards.
 
-Two cumulative profiles:
+Two cumulative profiles (`core ⊆ full`):
 
-| Profile   | Tools added |
-|-----------|-------------|
-| `minimal` | tmux (+ sheldon infrastructure) |
-| `server`  | bat, eza, fd, fzf, jq, ripgrep, tealdeer, zoxide, vfox |
+| Profile | Tools added |
+|---------|-------------|
+| `core`  | tmux (+ sheldon infrastructure) |
+| `full`  | bat, eza, fd, fzf, jq, ripgrep, tealdeer, zoxide, vfox |
+
+Legacy names `minimal` / `server` are accepted as aliases for one release —
+auto-migrated to `core` / `full` on next `dotfiles install`.
 
 ---
 
@@ -45,7 +48,7 @@ How to add a package: `docs/architecture.md#appendix-b-adding-a-package`
 
 ## Adding a New Package
 
-1. Pick the right tier: `minimal` | `server`
+1. Pick the right tier: `core` | `full`
 2. Create **one file**: `zsh/packages/<tier>/<toolname>.zsh`
 3. Do **not** modify `zshrc`, `installer.zsh`, or any other core file
 4. Call `init_package_template "$PKG_NAME"` at the end
@@ -134,7 +137,7 @@ source ~/.zshrc
 4. **Using `command -v` for shell-function tools** — Tools like `nvm` are not
    binaries. Set `PKG_CHECK_FUNC` to a custom function, or `command -v` will always fail.
 
-5. **Adding a package that sorts before `00-sheldon.zsh`** — Files in `zsh/packages/minimal/`
+5. **Adding a package that sorts before `00-sheldon.zsh`** — Files in `zsh/packages/core/`
    load alphabetically. Any new file starting with `a`–`n` would load before sheldon and
    break the plugin system. Prefix with a number (`00-`) if strict ordering is required.
 
@@ -148,6 +151,6 @@ source ~/.zshrc
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `DOTFILES_ROOT` | `~/.dotfiles` | Path to this repo |
-| `DOTFILES_PROFILE` | `minimal` | Active profile (set via `dotfiles profile <name>`) |
+| `DOTFILES_PROFILE` | `core` | Active profile (set via `dotfiles profile <name>`) |
 | `DOTFILES_VERBOSE` | `false` | Detailed shell-startup + CLI logs (env-passed values override the saved default) |
 | `DOTFILES_INSTALL` | `false` | Set to `true` to run the install flow (set internally by `dotfiles install`) |

@@ -2,7 +2,7 @@
 
 # =============================================================================
 # Completion styles
-# NOTE: compinit is called in zsh/packages/minimal/00-sheldon.zsh AFTER
+# NOTE: compinit is called in zsh/packages/core/00-sheldon.zsh AFTER
 # sheldon sources zsh-completions, ensuring fpath is fully populated first.
 # This file contains only zstyle declarations — no compinit call.
 # =============================================================================

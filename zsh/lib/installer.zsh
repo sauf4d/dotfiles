@@ -9,7 +9,7 @@
 readonly _DOTFILES_INSTALLER_LOADED=1
 
 # Shared logging helpers (POSIX-compatible, also sourced by bin/dotfiles)
-source "${DOTFILES_ROOT:-$HOME/.dotfiles}/zsh/lib/_log.sh"
+source "${DOTFILES_ROOT:-$HOME/.dotfiles}/zsh/lib/log.sh"
 
 # -----------------------------------------------------------------------------
 # Package check

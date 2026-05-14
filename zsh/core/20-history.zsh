@@ -27,8 +27,8 @@ _dotfiles_reset_mouse() {
 add-zsh-hook precmd _dotfiles_reset_mouse
 
 # fzf-powered history search widget (bound to Ctrl+R)
-# Only registered when fzf is available — fzf is a server-tier package and
-# may not be present on minimal profile machines.
+# Only registered when fzf is available — fzf is a full-tier package and
+# may not be present on core profile machines.
 if command -v fzf &>/dev/null; then
     function fzf-history-search() {
         local selected

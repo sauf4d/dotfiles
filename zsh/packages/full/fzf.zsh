@@ -16,7 +16,7 @@ pkg_init() {
     export FZF_CTRL_T_COMMAND="rg --files --hidden --follow --glob '!.git/*'"
     export FZF_CTRL_T_OPTS="--preview 'bat --line-range :100 {}'"
     export FZF_ALT_C_COMMAND="fd --type d"
-    # eza is a server-tier package (installed alongside fzf); guard defensively
+    # eza is a full-tier package (installed alongside fzf); guard defensively
     if command -v eza &>/dev/null; then
         export FZF_ALT_C_OPTS="--preview 'eza --tree --level 2 --group-directories-first {}'"
     fi
