@@ -35,3 +35,10 @@ logs/
 # Local configuration
 .local
 .cache
+
+# Claude Code workspace artifacts — PRPs/plans/reports/sessions, etc.
+# Already-tracked files (e.g. PRDs deliberately committed) continue to
+# track via git's "tracked-files-override-gitignore" rule. To explicitly
+# add a new artifact in the future:
+#   git add -f .claude/path/to/file
+.claude/
