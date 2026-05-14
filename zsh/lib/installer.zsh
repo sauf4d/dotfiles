@@ -185,6 +185,13 @@ init_package_template() {
                 return 1
             }
         fi
+        # In install mode, also re-run pkg_post_install on already-installed
+        # packages — keeps idempotent state in sync (e.g. vfox manifest, sheldon
+        # plugin lock, tmux TPM). Skipped on normal shell startup so we don't
+        # eat the silent-startup contract or slow `source ~/.zshrc`.
+        if [[ "${DOTFILES_INSTALL:-false}" == "true" ]] && typeset -f pkg_post_install >/dev/null; then
+            pkg_post_install || _dotfiles_log_warning "Post-install re-sync failed for ${package_name}"
+        fi
         _dotfiles_log_success "${package_name} initialized"
         _dotfiles_cleanup_package_hooks
         return 0

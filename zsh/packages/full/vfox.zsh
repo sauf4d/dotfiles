@@ -117,9 +117,12 @@ pkg_post_install() {
             continue
         }
 
-        # `vfox use -g` requires an active shell hook. The install flow runs
-        # non-interactively, so spawn an interactive zsh that auto-activates vfox.
-        zsh -ic "vfox use -g $plugin@$version" &>/dev/null || \
+        # `vfox use -g` requires an active shell hook. We need an interactive
+        # zsh so vfox's precmd fires. CRITICAL: unset DOTFILES_INSTALL in the
+        # spawned shell — otherwise init_package_template re-fires every
+        # pkg_post_install when zshrc loads packages, including THIS vfox post
+        # which spawns another zsh -ic, creating an infinite recursion.
+        DOTFILES_INSTALL=false zsh -ic "vfox use -g $plugin@$version" &>/dev/null || \
             _dotfiles_log_warning "vfox: could not set $plugin@$version as global"
     done < "$sdks_file"
 }
