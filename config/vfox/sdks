@@ -1,7 +1,12 @@
 # vfox SDK manifest — synced across machines via dotfiles.
 #
 # Format: one entry per line, `plugin@version`. Comments start with #.
-# vfox does NOT accept aliases like "lts" or "latest" — pin concrete versions.
+# Use `@latest` (vfox-supported alias) to always pull the newest stable
+# release on each `dotfiles install`. Pin a concrete version (e.g.
+# `nodejs@24.15.0`) when you need reproducibility.
+#
+# Note: `@lts` is NOT a vfox alias — plugins handle it inconsistently.
+# Use a concrete version if you want the latest LTS specifically.
 #
 # Official plugins (version-fox/*):   nodejs, golang, python
 # Community plugins (third-party):    bun
@@ -10,7 +15,7 @@
 #
 # To apply changes: edit, then run `dotfiles install` (re-runs pkg_post_install).
 
-nodejs@24.15.0
-golang@1.26.3
-python@3.14.5
-bun@1.3.14
+nodejs@latest
+golang@latest
+python@latest
+bun@latest
