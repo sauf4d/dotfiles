@@ -33,6 +33,18 @@ pkg_init() {
         _dotfiles_log_error "sheldon not found in PATH"
         return 1
     }
+
+    # Background refresh: if the lock file is older than 7 days, re-fetch
+    # plugin repos. Runs detached — zero impact on shell startup time.
+    # The new lock takes effect on the NEXT shell open, which is acceptable
+    # for a weekly refresh cadence. Uses the .lock file (not the plugin dir)
+    # because sheldon touches the dir mtime on every source operation.
+    # Lock lives under XDG_DATA_HOME, NOT XDG_CONFIG_HOME (sheldon convention).
+    local lock_file="${XDG_DATA_HOME:-$HOME/.local/share}/sheldon/plugins.lock"
+    if [[ -n ${lock_file}(#qN.md+7) ]]; then
+        ( "$sheldon_bin" lock --update &>/dev/null & ) 2>/dev/null
+    fi
+
     local sheldon_output
     sheldon_output="$("$sheldon_bin" source)" || {
         _dotfiles_log_error "sheldon source failed — plugins may not load correctly"
@@ -56,6 +68,8 @@ pkg_init() {
 pkg_doctor() {
     local issues=0
     local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/sheldon"
+    # sheldon stores its lock file under XDG_DATA_HOME (not XDG_CONFIG_HOME)
+    local lock_file="${XDG_DATA_HOME:-$HOME/.local/share}/sheldon/plugins.lock"
 
     if command -v sheldon &>/dev/null; then
         local ver
@@ -71,6 +85,15 @@ pkg_doctor() {
     else
         _dotfiles_log_result "sheldon" "plugins.toml missing at ${config_dir}"
         ((issues++))
+    fi
+
+    # Lock-file age (cross-platform stat: BSD -f%m | GNU -c%Y)
+    if [[ -f "$lock_file" ]]; then
+        local mtime now age_days
+        mtime="$(stat -f%m "$lock_file" 2>/dev/null || stat -c%Y "$lock_file" 2>/dev/null || echo 0)"
+        now="$(date +%s)"
+        age_days=$(( (now - mtime) / 86400 ))
+        _dotfiles_log_dim "lock: ${age_days}d old (auto-refresh kicks in at 7d)"
     fi
 
     return $issues
