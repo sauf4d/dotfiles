@@ -12,19 +12,34 @@ pkg_install() {
     os="$(dotfiles_os)"
     pkg_mgr="$(dotfiles_pkg_manager)"
 
+    # All install paths below follow the official vfox guide:
+    # https://vfox.lhan.me/guides/quick-install.html
+    # The apt/yum branches use `trusted=yes` / `gpgcheck=0` per upstream —
+    # a deliberate simplicity-over-signature-verification tradeoff. If you
+    # want GPG verification, install vfox manually with the upstream key.
+
     if [[ "$os" == "macos" && "$pkg_mgr" == "brew" ]]; then
         brew install vfox || return 1
+
     elif [[ "$pkg_mgr" == "apt" ]]; then
-        # vfox distributes via Fury apt repo. Install with GPG verification.
-        sudo install -dm 755 /etc/apt/keyrings
-        curl --proto '=https' --tlsv1.2 -fsSL https://apt.fury.io/versionfox/gpg.key \
-            | sudo gpg --dearmor -o /etc/apt/keyrings/vfox.gpg
-        echo "deb [signed-by=/etc/apt/keyrings/vfox.gpg] https://apt.fury.io/versionfox/ /" \
+        echo "deb [trusted=yes lang=none] https://apt.fury.io/versionfox/ /" \
             | sudo tee /etc/apt/sources.list.d/versionfox.list >/dev/null
         sudo apt-get update -qq && sudo apt-get install -y vfox || return 1
+
+    elif [[ "$pkg_mgr" == "yum" || "$pkg_mgr" == "dnf" ]]; then
+        sudo tee /etc/yum.repos.d/versionfox.repo >/dev/null <<'EOF'
+[vfox]
+name=VersionFox Repo
+baseurl=https://yum.fury.io/versionfox/
+enabled=1
+gpgcheck=0
+EOF
+        sudo "$pkg_mgr" install -y vfox || return 1
+
     else
-        _dotfiles_log_warning "vfox: unsupported platform — install manually from https://vfox.dev"
-        return 1
+        # Fallback: upstream curl|bash installer (matches official guide).
+        _dotfiles_log_info "vfox: using upstream installer (pkg_mgr=$pkg_mgr)"
+        curl -sSL https://raw.githubusercontent.com/version-fox/vfox/main/install.sh | bash || return 1
     fi
 }
 
@@ -178,7 +193,7 @@ pkg_uninstall() {
         rm -rf "$vfox_config" 2>/dev/null
     fi
 
-    # Uninstall binary
+    # Uninstall binary — branches mirror pkg_install
     if [[ "$os" == "macos" && "$pkg_mgr" == "brew" ]]; then
         if ! brew uninstall vfox 2>/dev/null; then
             [[ -n "${_PKG_UNINSTALL_REPORT_FILE:-}" ]] && printf 'ERROR=%s\nREMAINING=%s\nRECOVERY=%s\n' \
@@ -188,27 +203,48 @@ pkg_uninstall() {
                 > "$_PKG_UNINSTALL_REPORT_FILE"
             return 1
         fi
+
     elif [[ "$pkg_mgr" == "apt" ]]; then
-        if ! sudo apt remove -y vfox 2>/dev/null; then
+        if ! sudo apt-get remove -y vfox 2>/dev/null; then
             [[ -n "${_PKG_UNINSTALL_REPORT_FILE:-}" ]] && printf 'ERROR=%s\nREMAINING=%s\nRECOVERY=%s\n' \
-                "apt remove vfox failed" \
+                "apt-get remove vfox failed" \
                 "$(command -v vfox 2>/dev/null || echo 'unknown')" \
-                "run: sudo apt remove -y vfox" \
+                "run: sudo apt-get remove -y vfox" \
                 > "$_PKG_UNINSTALL_REPORT_FILE"
             return 1
         fi
-        # Remove the Fury apt source and keyring added during pkg_install
+        # Remove Fury apt source list. The /etc/apt/keyrings/vfox.gpg path is
+        # legacy from the pre-v2 GPG-keyring install — clean it up if present
+        # so machines upgrading from older dotfiles don't leak stale state.
         sudo rm -f /etc/apt/sources.list.d/versionfox.list 2>/dev/null
         sudo rm -f /etc/apt/keyrings/vfox.gpg 2>/dev/null
         sudo apt-get update -qq 2>/dev/null || true
-    else
-        if command -v vfox &>/dev/null; then
+
+    elif [[ "$pkg_mgr" == "yum" || "$pkg_mgr" == "dnf" ]]; then
+        if ! sudo "$pkg_mgr" remove -y vfox 2>/dev/null; then
             [[ -n "${_PKG_UNINSTALL_REPORT_FILE:-}" ]] && printf 'ERROR=%s\nREMAINING=%s\nRECOVERY=%s\n' \
-                "Unknown package manager — cannot auto-uninstall vfox" \
+                "$pkg_mgr remove vfox failed" \
                 "$(command -v vfox 2>/dev/null || echo 'unknown')" \
-                "Remove vfox via your system package manager or from https://vfox.dev" \
+                "run: sudo $pkg_mgr remove -y vfox" \
                 > "$_PKG_UNINSTALL_REPORT_FILE"
             return 1
+        fi
+        sudo rm -f /etc/yum.repos.d/versionfox.repo 2>/dev/null
+
+    else
+        # Fallback installer path — binary was dropped by curl|bash. Locate it
+        # via PATH and remove. If not on PATH, assume already removed (idempotent).
+        local vfox_bin
+        vfox_bin="$(command -v vfox 2>/dev/null)"
+        if [[ -n "$vfox_bin" ]]; then
+            if ! sudo rm -f "$vfox_bin" 2>/dev/null; then
+                [[ -n "${_PKG_UNINSTALL_REPORT_FILE:-}" ]] && printf 'ERROR=%s\nREMAINING=%s\nRECOVERY=%s\n' \
+                    "Failed to remove vfox binary at $vfox_bin" \
+                    "$vfox_bin" \
+                    "run: sudo rm -f $vfox_bin" \
+                    > "$_PKG_UNINSTALL_REPORT_FILE"
+                return 1
+            fi
         fi
     fi
 
