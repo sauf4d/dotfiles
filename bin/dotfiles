@@ -221,25 +221,38 @@ save_config() {
     config_dir=$(dirname "$CONFIG_FILE")
     [[ ! -d "$config_dir" ]] && mkdir -p "$config_dir"
 
-    # Rotate backups: keep last 3 (.backup → .backup.1 → .backup.2)
+    # Single backup, overwritten each save (no rotation — older history is
+    # available via git for the repo files, and a single .backup is enough
+    # to recover from a botched edit).
     if [[ -f "$CONFIG_FILE" ]]; then
-        [[ -f "${CONFIG_FILE}.backup.2" ]] && mv "${CONFIG_FILE}.backup.2" "${CONFIG_FILE}.backup.3" 2>/dev/null || true
-        [[ -f "${CONFIG_FILE}.backup.1" ]] && mv "${CONFIG_FILE}.backup.1" "${CONFIG_FILE}.backup.2" 2>/dev/null || true
-        [[ -f "${CONFIG_FILE}.backup"   ]] && mv "${CONFIG_FILE}.backup"   "${CONFIG_FILE}.backup.1" 2>/dev/null || true
         cp "$CONFIG_FILE" "${CONFIG_FILE}.backup" 2>/dev/null || true
     fi
+    # One-shot migration: remove legacy rotated backups left by the old
+    # 3-level rotation. Safe no-op if they don't exist.
+    rm -f "${CONFIG_FILE}.backup.1" "${CONFIG_FILE}.backup.2" "${CONFIG_FILE}.backup.3" 2>/dev/null || true
 
-    # Remove existing dotfiles block (exports + header comment)
+    # Remove existing dotfiles block (exports + header comment) so we can
+    # re-append a fresh one at the END of the file.
     if [[ -f "$CONFIG_FILE" ]]; then
         sed_inplace "$CONFIG_FILE" '/^export DOTFILES_/d'
         sed_inplace "$CONFIG_FILE" '/^# Dotfiles Configuration/d'
+
+        # Collapse trailing blank lines — guarantees exactly ONE empty line
+        # between the user's content and the appended block below. Portable
+        # awk: rebuild the file dropping any run of empty lines at EOF.
+        local _tmp
+        _tmp="$(mktemp "${CONFIG_FILE}.XXXXXX")" || _tmp=""
+        if [[ -n "$_tmp" ]]; then
+            awk '
+                /^[[:space:]]*$/ { blanks = blanks "\n"; next }
+                { if (NR > 1 && blanks != "") printf "\n"; print; blanks = "" }
+            ' "$CONFIG_FILE" > "$_tmp" && mv "$_tmp" "$CONFIG_FILE"
+        fi
     fi
 
-    # Append new configuration block.
-    # Escape \${VAR:-default} so the LITERAL fallback syntax lands in zshenv —
-    # this lets env-passed values (e.g. DOTFILES_VERBOSE=true) override the
-    # saved defaults at shell-startup time. Without the escape, the file would
-    # contain unconditional exports that clobber the user's env.
+    # Append the configuration block at the end with exactly one leading
+    # blank line. Escape \${VAR:-default} so the LITERAL fallback syntax
+    # lands in zshenv — env-passed values then win over saved defaults.
     local _root="${DOTFILES_ROOT:-$DEFAULT_ROOT}"
     local _profile="${DOTFILES_PROFILE:-$DEFAULT_PROFILE}"
     local _verbose="${DOTFILES_VERBOSE:-$DEFAULT_VERBOSE}"
