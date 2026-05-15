@@ -35,6 +35,7 @@ pkg_init() {
 
     # macOS: Option+C sends ç instead of the ESC-c sequence fzf expects for Alt+C.
     [[ "$(uname)" == "Darwin" ]] && bindkey 'ç' fzf-cd-widget 2>/dev/null
+    return 0
 }
 
 pkg_doctor() {

@@ -1,0 +1,98 @@
+#compdef dotfiles
+# =============================================================================
+# zsh completion for `dotfiles`
+# Auto-discovered via $fpath wired in zsh/core/30-completion.zsh
+# =============================================================================
+
+_dotfiles() {
+    local context state line
+    typeset -A opt_args
+
+    local -a commands
+    commands=(
+        'install:Symlink configs and install packages (default)'
+        'i:Alias for install'
+        'update:Pull latest changes via git'
+        'u:Alias for update'
+        'sync:update + install in one step'
+        's:Alias for sync'
+        'status:Fast read-only snapshot (profile, git, symlinks, packages)'
+        'st:Alias for status'
+        'config:Get/set/list configuration values'
+        'doctor:Read-only health check'
+        'd:Alias for doctor'
+        'clean:Remove orphaned symlinks (dry-run default)'
+        'c:Alias for clean'
+        'uninstall:Remove all symlinks, packages, and dotfiles repo'
+        'link:Create or refresh symlinks only'
+        'profile:Change active profile (alias for: config set profile)'
+        'packages:Install required packages for current profile'
+        'version:Show version information'
+        'help:Show usage information'
+    )
+
+    _arguments -C \
+        '(-v --verbose)'{-v,--verbose}'[Enable verbose output]' \
+        '(-h --help)'{-h,--help}'[Show help]' \
+        '1: :->command' \
+        '*::arg:->args'
+
+    case "$state" in
+        command)
+            _describe -t commands 'dotfiles command' commands
+            ;;
+        args)
+            case "$line[1]" in
+                config)         _dotfiles_config ;;
+                profile)        _values 'profile' core full ;;
+                update|u|sync|s)
+                    _arguments '--stash[Auto-stash local changes before pulling]'
+                    ;;
+                clean|c)
+                    _arguments '--force[Actually remove orphaned links (default: dry-run)]'
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_dotfiles_config() {
+    local -a actions
+    actions=(
+        'list:Print current configuration'
+        'get:Print raw value of a key to stdout'
+        'set:Validate and save key=value'
+        'edit:Open config file in $EDITOR'
+        'path:Print config file path'
+        'keys:List valid keys (one per line)'
+        'help:Show config usage'
+    )
+
+    _arguments -C \
+        '1: :->action' \
+        '2: :->key' \
+        '3: :->value'
+
+    case "$state" in
+        action)
+            _describe -t actions 'config action' actions
+            ;;
+        key)
+            case "$words[2]" in
+                get|set)
+                    _values 'config key' profile verbose root
+                    ;;
+            esac
+            ;;
+        value)
+            [[ "$words[2]" == "set" ]] || return
+            case "$words[3]" in
+                profile)  _values 'profile' core full ;;
+                verbose)  _values 'verbose' true false ;;
+                root)     _path_files -/ ;;
+            esac
+            ;;
+    esac
+}
+
+_dotfiles "$@"

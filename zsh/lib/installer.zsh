@@ -173,6 +173,11 @@ init_package_template() {
         return 1
     fi
 
+    # Scope every debug call from this package's hooks. The new
+    # _dotfiles_log_debug reads $DOTFILES_LOG_SCOPE for tag rendering.
+    # Local-scoped so it auto-resets when this function returns.
+    local DOTFILES_LOG_SCOPE="PKG:${package_name}"
+
     _dotfiles_log_debug "Checking ${package_name}..."
 
     # Check if installed

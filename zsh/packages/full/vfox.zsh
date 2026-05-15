@@ -43,88 +43,15 @@ EOF
     fi
 }
 
-# Resolve `@latest` to the newest stable version (filters pre-releases).
-# Some vfox plugins (notably vfox-python) treat `@latest` literally as
-# "newest available", which includes betas/RCs. We re-resolve here by
-# scanning `vfox search` output and picking the first version whose
-# string doesn't carry a pre-release marker.
-#
-# Recognised pre-release markers (case-insensitive): alpha, beta, rc, dev,
-# pre, and the `b<digit>` short-form used by vfox-python (e.g. 3.15.0b1t).
-_vfox_resolve_latest_stable() {
-    local plugin="$1"
-    vfox search "$plugin" 2>/dev/null \
-      | awk '
-          /^ - / {
-              # Strip leading " - ", take first whitespace-delimited token.
-              gsub(/^ - /, "")
-              split($0, parts, " ")
-              v = parts[1]
-              # Skip if any common pre-release marker matches.
-              if (tolower(v) ~ /(alpha|beta|rc|dev|pre|b[0-9])/) next
-              print v
-              exit
-          }
-      '
-}
-
 pkg_post_install() {
-    command -v vfox &>/dev/null || return 0
-
-    local sdks_file="${XDG_CONFIG_HOME:-$HOME/.config}/vfox/sdks"
-    if [[ ! -f "$sdks_file" ]]; then
-        _dotfiles_log_warning "vfox: SDK manifest not found at $sdks_file (skipping provisioning)"
-        return 0
+    # SDK plugin installation is intentionally manual — run `vfox add <plugin>`
+    # and `vfox install <plugin>@<version>` yourself to manage runtimes.
+    # This hook only verifies the vfox binary is present after installation.
+    if ! command -v vfox &>/dev/null; then
+        _dotfiles_log_warning "vfox: binary not found after install"
+        return 1
     fi
-
-    local line plugin version resolved
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        # Skip blank lines and comments
-        [[ -z "$line" || "$line" == \#* ]] && continue
-        # Trim inline whitespace
-        line="${line## }"; line="${line%% }"
-        # Require plugin@version format
-        if [[ "$line" != *@* ]]; then
-            _dotfiles_log_warning "vfox: malformed manifest line (skipping): $line"
-            continue
-        fi
-        plugin="${line%@*}"
-        version="${line#*@}"
-
-        if ! vfox info "$plugin" &>/dev/null; then
-            _dotfiles_log_info "vfox: adding plugin $plugin"
-            vfox add "$plugin" 2>/dev/null || {
-                _dotfiles_log_warning "vfox: failed to add plugin $plugin (skipping)"
-                continue
-            }
-        fi
-
-        # Resolve @latest to a concrete stable version. This must happen
-        # AFTER `vfox add` so the plugin is available to search.
-        if [[ "$version" == "latest" ]]; then
-            resolved="$(_vfox_resolve_latest_stable "$plugin")"
-            if [[ -z "$resolved" ]]; then
-                _dotfiles_log_warning "vfox: no stable version found for $plugin (skipping)"
-                continue
-            fi
-            _dotfiles_log_info "vfox: $plugin@latest -> $resolved"
-            version="$resolved"
-        fi
-
-        _dotfiles_log_info "vfox: installing $plugin@$version"
-        vfox install "$plugin@$version" 2>/dev/null || {
-            _dotfiles_log_warning "vfox: install failed for $plugin@$version (skipping)"
-            continue
-        }
-
-        # `vfox use -g` requires an active shell hook. We need an interactive
-        # zsh so vfox's precmd fires. CRITICAL: unset DOTFILES_INSTALL in the
-        # spawned shell — otherwise init_package_template re-fires every
-        # pkg_post_install when zshrc loads packages, including THIS vfox post
-        # which spawns another zsh -ic, creating an infinite recursion.
-        DOTFILES_INSTALL=false zsh -ic "vfox use -g $plugin@$version" &>/dev/null || \
-            _dotfiles_log_warning "vfox: could not set $plugin@$version as global"
-    done < "$sdks_file"
+    return 0
 }
 
 pkg_init() {
