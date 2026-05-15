@@ -8,18 +8,33 @@ pkg_init() {
     export FZF_DEFAULT_OPTS="--height 75% --multi --reverse --margin=0,1 \
         --bind ctrl-f:page-down,ctrl-b:page-up,ctrl-/:toggle-preview \
         --bind pgdn:preview-page-down,pgup:preview-page-up \
-        --preview 'bat --line-range :100 {}' \
         --marker='✚' --pointer='▶' --prompt='❯ ' --no-separator --scrollbar='█' \
         --color bg+:#262626,fg+:#dadada,hl:#f09479,hl+:#f09479 \
         --color border:#303030,info:#cfcfb0,header:#80a0ff,spinner:#36c692 \
         --color prompt:#87afff,pointer:#ff5189,marker:#f09479"
+    # Ctrl+R — history fuzzy search, no preview (commands are self-describing)
+    export FZF_CTRL_R_OPTS="--no-preview"
+    # Ctrl+T — file search; bat theme/color come from ~/.config/bat/config
     export FZF_CTRL_T_COMMAND="rg --files --hidden --follow --glob '!.git/*'"
     export FZF_CTRL_T_OPTS="--preview 'bat --line-range :100 {}'"
+    # Alt+C  — directory jump with eza tree preview
     export FZF_ALT_C_COMMAND="fd --type d"
-    # eza is a full-tier package (installed alongside fzf); guard defensively
     if command -v eza &>/dev/null; then
         export FZF_ALT_C_OPTS="--preview 'eza --tree --level 2 --group-directories-first {}'"
     fi
+
+    # Wire up keybindings — must come AFTER env vars so the bindings pick
+    # up FZF_CTRL_T_COMMAND, FZF_ALT_C_COMMAND, etc.
+    if fzf --zsh &>/dev/null; then
+        eval "$(fzf --zsh)"
+    else
+        local _fzf_shell="$(brew --prefix fzf 2>/dev/null)/shell"
+        [[ -f "$_fzf_shell/key-bindings.zsh" ]] && source "$_fzf_shell/key-bindings.zsh"
+        [[ -f "$_fzf_shell/completion.zsh"   ]] && source "$_fzf_shell/completion.zsh"
+    fi
+
+    # macOS: Option+C sends ç instead of the ESC-c sequence fzf expects for Alt+C.
+    [[ "$(uname)" == "Darwin" ]] && bindkey 'ç' fzf-cd-widget 2>/dev/null
 }
 
 pkg_doctor() {

@@ -21,8 +21,11 @@
 --pager="less --RAW-CONTROL-CHARS --quit-if-one-screen --mouse"
 
 # ── Formatting ────────────────────────────────────────────────────────────────
---tabs=4
+--tabs=2
 --italic-text=always
+# Force color output even when stdout is not a TTY (e.g. fzf preview pane,
+# pipes). This means bat's theme and syntax highlighting always come through.
+--color=always
 
 # ── Syntax mappings ───────────────────────────────────────────────────────────
 # Files that bat can't identify by extension alone.

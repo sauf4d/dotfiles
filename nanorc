@@ -8,7 +8,7 @@ set numbercolor cyan
 
 # ── Editing ───────────────────────────────────────────────────────────────────
 set autoindent        # maintain indentation level of the previous line
-set tabsize 4
+set tabsize 2
 set tabstospaces      # insert spaces when Tab is pressed
 set trimblanks        # strip trailing whitespace on save
 
