@@ -119,7 +119,7 @@ unset _DF_UI_LIB
 readonly RED="$_DF_RED" GREEN="$_DF_GREEN" YELLOW="$_DF_YELLOW"
 readonly BLUE="$_DF_BLUE" MAGENTA="$_DF_MAGENTA" CYAN="$_DF_CYAN"
 readonly WHITE="$_DF_WHITE" GRAY="$_DF_GRAY"
-readonly BOLD="$_DF_BOLD" RESET="$_DF_RESET"
+readonly BOLD="$_DF_BOLD" DIM="$_DF_DIM" RESET="$_DF_RESET"
 readonly CHECK="$_DF_CHECK" CROSS="$_DF_CROSS"
 readonly ARROW="$_DF_ARROW" BULLET="$_DF_BULLET"
 
@@ -1127,84 +1127,174 @@ status_command() {
 # =============================================================================
 # Main Installation Flow
 # =============================================================================
-install_dotfiles() {
-    local is_install=false
-    is_fresh_install && is_install=true
+# =============================================================================
+# Install flow — TWO modes only.
+#
+#   curl     One-liner bootstrap on a clean machine: `curl ...|bash`. Detected
+#            by absence of $DOTFILES_ROOT/.git AND non-TTY stdin (the pipe).
+#            Auto-pilot. Never `exec zsh` (would land in a broken state inside
+#            the curl-piped non-interactive bash).
+#   local    Everything else — running the script on a checked-out repo, with
+#            or without prior install. Compact colored header + footer. May
+#            `exec zsh` per existing rules.
+#
+# Color is used freely here: blue for the title bar, cyan for section
+# headers, green for ✓ markers, magenta for accents, gray for descriptions.
+# =============================================================================
 
-    # Banner only on fresh install. Routine `dotfiles install`/`update` is
-    # noisy enough without it; users opening the interactive menu still see it
-    # there. Respects --no-banner / --quiet via show_banner itself.
-    $is_install && show_banner
+# Centered title bar — bold blue rule with subtitle in the middle.
+# Used by both modes.
+_install_titlebar() {
+    local subtitle="$1"
+    local cols=72 left="DOTFILES(1)" right="DOTFILES(1)"
+    local pad_l=$(( (cols - ${#left} - ${#subtitle} - ${#right}) / 2 ))
+    (( pad_l < 1 )) && pad_l=1
+    local pad_r=$(( cols - ${#left} - pad_l - ${#subtitle} - ${#right} ))
+    (( pad_r < 1 )) && pad_r=1
+    printf '%b%s%*s%b%s%b%*s%s%b\n' \
+        "$BOLD$BLUE" "$left" "$pad_l" "" \
+        "$BOLD$WHITE" "$subtitle" "$BOLD$BLUE" \
+        "$pad_r" "" "$right" "$RESET"
+    echo
+}
 
-    if $is_install; then
-        _dotfiles_log_step "Starting dotfiles installation (fresh install)"
+# Print a man-page section header in bold cyan.
+_install_section() {
+    printf '%b%s%b\n' "$BOLD$CYAN" "$1" "$RESET"
+}
+
+# Welcome screen — one render at the top of every install run.
+# Args: <mode>  "curl" | "local"
+_install_welcome() {
+    local mode="$1"
+    local profile pkg_total _dir target=${DOTFILES_ROOT/#$HOME/~}
+    profile="${DOTFILES_PROFILE:-$DEFAULT_PROFILE}"
+    pkg_total=0
+    while IFS= read -r _dir; do
+        pkg_total=$((pkg_total + $(find "$_dir" -name "*.zsh" 2>/dev/null | wc -l)))
+    done < <(dotfiles_profile_dirs "$profile" 2>/dev/null)
+
+    if [[ "$mode" == "curl" ]]; then
+        clear 2>/dev/null
+        _install_titlebar "Installing"
+        _install_section "PLAN"
+        printf '    %bsource%b   %s\n'           "$GRAY" "$RESET" "${DOTFILES_REPO:-$REPO_URL}"
+        printf '    %btarget%b   %b%s%b\n'       "$GRAY" "$RESET" "$BOLD$WHITE" "$target" "$RESET"
+        printf '    %bprofile%b  %b%s%b  %b(%d packages)%b\n' \
+            "$GRAY" "$RESET" "$BOLD$YELLOW" "$profile" "$RESET" "$DIM" "$pkg_total" "$RESET"
+        printf '    %bconfig%b   %b%s%b  %b(managed block)%b\n' \
+            "$GRAY" "$RESET" "$WHITE" "${CONFIG_FILE/#$HOME/~}" "$RESET" "$DIM" "$RESET"
+        echo
+        _install_section "SAFE BY DEFAULT"
+        printf '    %b•%b Existing files are %bnot deleted%b — only repo-pointing symlinks are touched.\n' \
+            "$MAGENTA" "$RESET" "$BOLD" "$RESET"
+        printf '    %b•%b %s is backed up before edit.\n' \
+            "$MAGENTA" "$RESET" "${CONFIG_FILE/#$HOME/~}"
+        printf '    %b•%b Reverse anytime with %bdotfiles uninstall%b.\n' \
+            "$MAGENTA" "$RESET" "$BOLD$WHITE" "$RESET"
+        echo
+        printf '%bcurl mode — non-interactive. Proceeding automatically.%b\n' "$DIM" "$RESET"
+        echo
+        sleep 1
     else
-        _dotfiles_log_step "Starting dotfiles update"
+        local sha=""
+        is_fresh_install || sha="$(git -C "$DOTFILES_ROOT" rev-parse --short HEAD 2>/dev/null || echo '?')"
+        echo
+        if [[ -n "$sha" ]]; then
+            printf '%b▸%b %brefreshing dotfiles%b · profile %b%s%b · HEAD %b%s%b\n' \
+                "$BOLD$MAGENTA" "$RESET" \
+                "$BOLD$WHITE" "$RESET" \
+                "$BOLD$YELLOW" "$profile" "$RESET" \
+                "$DIM" "$sha" "$RESET"
+        else
+            printf '%b▸%b %binstalling dotfiles%b · profile %b%s%b · target %b%s%b\n' \
+                "$BOLD$MAGENTA" "$RESET" \
+                "$BOLD$WHITE" "$RESET" \
+                "$BOLD$YELLOW" "$profile" "$RESET" \
+                "$BOLD$WHITE" "$target" "$RESET"
+        fi
+        echo
+    fi
+}
+
+# Closing screen.
+# Args: <mode>  "curl" | "local"
+_install_done() {
+    local mode="$1"
+    local sha
+    sha="$(git -C "$DOTFILES_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
+    if [[ "$mode" == "curl" ]]; then
+        echo
+        _install_titlebar "Installed"
+        _install_section "WHAT HAPPENED"
+        printf '    %b✓%b cloned       %b%s%b @ %b%s%b\n' \
+            "$GREEN" "$RESET" "$BOLD$WHITE" "${DOTFILES_ROOT/#$HOME/~}" "$RESET" "$DIM" "$sha" "$RESET"
+        printf '    %b✓%b symlinked    configs into %b~/%b · %b~/.config%b · %b~/.claude%b\n' \
+            "$GREEN" "$RESET" "$WHITE" "$RESET" "$WHITE" "$RESET" "$WHITE" "$RESET"
+        printf '    %b✓%b packages     profile %b%s%b ready\n' \
+            "$GREEN" "$RESET" "$BOLD$YELLOW" "$DOTFILES_PROFILE" "$RESET"
+        printf '    %b✓%b config       managed block written to %b%s%b\n' \
+            "$GREEN" "$RESET" "$WHITE" "${CONFIG_FILE/#$HOME/~}" "$RESET"
+        echo
+        _install_section "NEXT STEPS"
+        printf '    %b1.%b Open a new terminal, or run:  %bexec zsh%b\n'   "$BOLD$MAGENTA" "$RESET" "$BOLD$GREEN" "$RESET"
+        printf '    %b2.%b Verify install:               %bdotfiles doctor%b\n' "$BOLD$MAGENTA" "$RESET" "$BOLD$CYAN" "$RESET"
+        printf '    %b3.%b Browse the menu:              %bdotfiles%b\n'         "$BOLD$MAGENTA" "$RESET" "$BOLD$CYAN" "$RESET"
+        echo
+        printf '    %bSource:%b %s\n' "$GRAY" "$RESET" "$REPO_URL"
+        echo
+    else
+        echo
+        printf '%b✓%b dotfiles ready · profile %b%s%b · HEAD %b%s%b · run %bdotfiles status%b for details\n' \
+            "$BOLD$GREEN" "$RESET" \
+            "$BOLD$YELLOW" "$DOTFILES_PROFILE" "$RESET" \
+            "$DIM" "$sha" "$RESET" \
+            "$BOLD$CYAN" "$RESET"
+        echo
+    fi
+}
+
+# Decide whether to `exec zsh`. curl-mode never reloads.
+_install_handle_reload() {
+    local mode="$1"
+    cd "${_ORIG_PWD:-$HOME}" 2>/dev/null || true
+
+    [[ "$mode" == "curl" ]] && return 0
+    [[ "${DOTFILES_NO_RELOAD:-false}" == "true" || "${DOTFILES_WRAPPER:-}" == "1" ]] && return 0
+
+    if ! command -v zsh >/dev/null 2>&1; then
+        _dotfiles_log_warning "zsh not found — install zsh and restart your terminal"
+        return 0
+    fi
+    exec zsh
+}
+
+install_dotfiles() {
+    # Mode detection: curl-pipe = no .git AND no TTY stdin. Everything else
+    # is local (script invoked on a checked-out repo or rerun after install).
+    local mode=local
+    if is_fresh_install && [[ ! -t 0 ]]; then
+        mode=curl
     fi
 
-    # Step 1: Setup environment (load config, set defaults)
+    _install_welcome "$mode"
     setup_environment
 
-    # Step 2: Clone the repository if missing (no git pull — use 'dotfiles update')
-    clone_repository_if_missing || {
-        _dotfiles_log_error "Failed to setup repository"
-        return 1
-    }
+    if is_fresh_install; then
+        clone_repository_if_missing || {
+            _dotfiles_log_error "Repository setup failed"
+            _dotfiles_log_hint "check network reachability or set DOTFILES_REPO=<url>"
+            return 1
+        }
+    fi
 
-    # Step 3: (Re)link the files (always relink to ensure latest structure)
     create_symlinks
-
-    # Step 4: Install / verify packages for active profile
     install_packages
-
-    # Step 5: Save configuration
     configure_profile
 
-    # Success message
-    echo
-    if $is_install; then
-        echo -e "${BOLD}${GREEN}╭────────────────────────────────────────────────────────────────╮${RESET}"
-        echo -e "${BOLD}${GREEN}│${RESET}${BOLD}${WHITE}                    🎉 Installation Complete!                   ${RESET}${BOLD}${GREEN}│${RESET}"
-        echo -e "${BOLD}${GREEN}╰────────────────────────────────────────────────────────────────╯${RESET}"
-        echo
-
-        _dotfiles_log_success "Profile '$DOTFILES_PROFILE' is now active"
-
-        # Show what's included — derived from active profile directories
-        echo
-        echo -e "${BOLD}${WHITE}What's Included:${RESET}"
-        local _dir _count _total=0
-        while IFS= read -r _dir; do
-            _count=$(find "$_dir" -name "*.zsh" 2>/dev/null | wc -l | tr -d ' ')
-            _total=$((_total + _count))
-            echo -e "  ${GREEN}${CHECK}${RESET} $(basename "$_dir"): $_count package(s)"
-        done < <(dotfiles_profile_dirs "$DOTFILES_PROFILE")
-    else
-        echo -e "${BOLD}${GREEN}╭────────────────────────────────────────────────────────────────╮${RESET}"
-        echo -e "${BOLD}${GREEN}│${RESET}${BOLD}${WHITE}                      ✨ Update Complete!                       ${RESET}${BOLD}${GREEN}│${RESET}"
-        echo -e "${BOLD}${GREEN}╰────────────────────────────────────────────────────────────────╯${RESET}"
-        echo
-
-        _dotfiles_log_success "Dotfiles updated to latest version"
-        _dotfiles_log_success "Profile '$DOTFILES_PROFILE' is active"
-    fi
-
-    # Step 6: Reload shell. Restore original CWD first so the replacement
-    # shell starts where the user was, not in DOTFILES_ROOT.
-    echo
-    cd "${_ORIG_PWD:-$HOME}"
-    if command -v zsh &>/dev/null; then
-        # When called via the zsh wrapper function, the wrapper does exec zsh
-        # in the parent process (replacing the user's actual shell). Skip here
-        # to avoid creating a redundant child shell.
-        # Skip the shell-replacement when the user passed --no-reload or when the
-    # zsh wrapper function is in charge of the reload itself.
-    if [[ "${DOTFILES_WRAPPER:-}" != "1" && "${DOTFILES_NO_RELOAD:-false}" != "true" ]]; then
-        exec zsh
-    fi
-    else
-        _dotfiles_log_warning "zsh not found — restart your terminal manually"
-    fi
+    _install_done "$mode"
+    _install_handle_reload "$mode"
 }
 
 # =============================================================================
@@ -1649,135 +1739,310 @@ _dispatch_pkg_hook() {
 }
 
 # =============================================================================
-# Interactive Menu
+# Interactive menu — static, man-page styled, zero-flicker.
+#
+# Renders ONCE per cycle. User types a selection key, action runs (or returns
+# rc=1 to quit), screen is cleared and menu repaints once. No redraw between
+# keystrokes, no arrow-key polling, no cursor hide/show, no traps.
+#
+# Pure bash. No external tools. Works on bare bash 3.2+ / Debian / Alpine /
+# macOS. Non-TTY (CI, piped install) → bypasses menu, runs install_dotfiles.
 # =============================================================================
-show_menu() {
-    clear
-    show_banner
 
-    # Ensure variables are set with defaults
-    set_defaults
+# Selection key → command id. Single source of truth for both the rendered
+# table and the dispatcher.
+_MENU_KEYS=(1 2 3 4 5 6 u q)
+_MENU_IDS=(install sync status config doctor clean uninstall quit)
+_MENU_DESC=(
+    "Symlink configs + install missing packages (no git pull)"
+    "git pull + install in one step (the daily driver)"
+    "Snapshot: profile, git state, symlinks, package count"
+    "Change profile, toggle verbose, edit raw config"
+    "Health check — badge grid + per-package detail"
+    "Remove orphaned symlinks (run after deleting a package)"
+    "Remove all symlinks, package configs, and the repo"
+    "Exit the menu"
+)
 
-    echo -e "${BOLD}${WHITE}Current Configuration:${RESET}"
-    echo -e "  ${GRAY}OS:${RESET}                  ${MAGENTA}$(get_os_type)${RESET}"
-    echo -e "  ${GRAY}Path:${RESET}                ${CYAN}${DOTFILES_ROOT}${RESET}"
-    echo -e "  ${GRAY}Profile:${RESET}             ${YELLOW}${DOTFILES_PROFILE}${RESET}"
-    echo -e "  ${GRAY}Verbose:${RESET}             ${GREEN}${DOTFILES_VERBOSE}${RESET}"
-
+# Render the menu page once. Pure print — no input handling, no loops.
+# Colored: blue title bar, cyan section headers, white command names, yellow
+# state values, green ✓ marks for healthy git state.
+_menu_render_page() {
+    local cols=72 left="DOTFILES(1)" right="DOTFILES(1)"
+    local title="Cross-Platform Dotfiles Manager"
+    local pad_l=$(( (cols - ${#left} - ${#title} - ${#right}) / 2 ))
+    (( pad_l < 1 )) && pad_l=1
+    local pad_r=$(( cols - ${#left} - pad_l - ${#title} - ${#right} ))
+    (( pad_r < 1 )) && pad_r=1
+    printf '%b%s%*s%b%s%b%*s%s%b\n' \
+        "$BOLD$BLUE" "$left" "$pad_l" "" \
+        "$BOLD$WHITE" "$title" "$BOLD$BLUE" \
+        "$pad_r" "" "$right" "$RESET"
     echo
-    echo -e "${BOLD}${WHITE}Available Actions:${RESET}"
-    echo -e "  ${CYAN}1)${RESET} Install      — symlink + packages (no git pull)"
-    echo -e "  ${CYAN}2)${RESET} Update       — git pull (stash/rebase/pop)"
-    echo -e "  ${CYAN}3)${RESET} Sync         — update + install"
-    echo -e "  ${CYAN}4)${RESET} Clean        — remove orphaned symlinks (dry-run)"
-    echo -e "  ${CYAN}5)${RESET} Doctor       — read-only health check"
-    echo -e "  ${CYAN}6)${RESET} Link         — create/refresh symlinks only"
-    echo -e "  ${CYAN}7)${RESET} Packages     — install packages for active profile"
-    echo -e "  ${CYAN}8)${RESET} Profile      — change active profile"
-    echo -e "  ${CYAN}u)${RESET} Uninstall    — remove all symlinks and dotfiles"
-    echo -e "  ${CYAN}t)${RESET} Toggle verbose mode"
-    echo -e "  ${CYAN}h)${RESET} Help"
-    echo -e "  ${CYAN}q)${RESET} Quit"
 
+    # NAME — minimal, one line.
+    printf '%bNAME%b\n' "$BOLD$CYAN" "$RESET"
+    printf '    %bdotfiles%b — manage shell config and packages across machines\n' \
+        "$BOLD$WHITE" "$RESET"
     echo
-    echo -n "Choose an option [1-8,u,t,h,q]: "
+
+    # STATE — current saved configuration + live git state.
+    printf '%bSTATE%b\n' "$BOLD$CYAN" "$RESET"
+    local profile verbose root
+    profile="$(_config_saved_value profile 2>/dev/null)"
+    verbose="$(_config_saved_value verbose 2>/dev/null)"
+    root="$(_config_saved_value root 2>/dev/null)"
+    printf '    %bprofile%b   %b%s%b\n' "$GRAY" "$RESET" "$BOLD$YELLOW" "$profile" "$RESET"
+    printf '    %bverbose%b   %b%s%b\n' "$GRAY" "$RESET" "$WHITE" "$verbose" "$RESET"
+    printf '    %broot%b      %b%s%b\n' "$GRAY" "$RESET" "$WHITE" "${root/#$HOME/~}" "$RESET"
+
+    if [[ -d "$DOTFILES_ROOT/.git" ]]; then
+        local branch sha dirty_n dirty_color dirty_label upstream ahead behind
+        branch="$(git -C "$DOTFILES_ROOT" symbolic-ref --short HEAD 2>/dev/null || echo detached)"
+        sha="$(git -C "$DOTFILES_ROOT" rev-parse --short HEAD 2>/dev/null || echo '?')"
+        dirty_n="$(git -C "$DOTFILES_ROOT" status --porcelain 2>/dev/null | wc -l | tr -d ' ')"
+        if [[ "$dirty_n" == "0" ]]; then
+            dirty_color="$GREEN"; dirty_label="clean"
+        else
+            dirty_color="$YELLOW"; dirty_label="${dirty_n} modified"
+        fi
+        printf '    %bbranch%b    %b%s%b · %b%s%b · %b%s%b\n' \
+            "$GRAY" "$RESET" \
+            "$BOLD$WHITE" "$branch" "$RESET" \
+            "$DIM" "$sha" "$RESET" \
+            "$dirty_color" "$dirty_label" "$RESET"
+
+        upstream="$(git -C "$DOTFILES_ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || echo '')"
+        if [[ -n "$upstream" ]]; then
+            ahead="$(git -C "$DOTFILES_ROOT" rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)"
+            behind="$(git -C "$DOTFILES_ROOT" rev-list --count "HEAD..@{u}" 2>/dev/null || echo 0)"
+            printf '    %bremote%b    %b%s%b · ↑%s ↓%s\n' \
+                "$GRAY" "$RESET" \
+                "$WHITE" "$upstream" "$RESET" \
+                "$ahead" "$behind"
+        fi
+    fi
+    echo
+
+    # COMMANDS — key in bold magenta, name in bold white, desc in gray.
+    printf '%bCOMMANDS%b\n' "$BOLD$CYAN" "$RESET"
+    local i key id desc
+    for i in "${!_MENU_IDS[@]}"; do
+        key="${_MENU_KEYS[i]}"
+        id="${_MENU_IDS[i]}"
+        desc="${_MENU_DESC[i]}"
+        printf '    %b%s%b   %b%-10s%b %b%s%b\n' \
+            "$BOLD$MAGENTA" "$key" "$RESET" \
+            "$BOLD$WHITE" "$id" "$RESET" \
+            "$GRAY" "$desc" "$RESET"
+    done
+    echo
+
+    # TIPS — tells the user what to type.
+    printf '%bTIPS%b\n' "$BOLD$CYAN" "$RESET"
+    printf '    Type %b1-6%b, %bu%b, %bq%b, or %ba command name%b · empty Enter to refresh state\n' \
+        "$BOLD$MAGENTA" "$RESET" "$BOLD$MAGENTA" "$RESET" "$BOLD$MAGENTA" "$RESET" "$BOLD$WHITE" "$RESET"
+    printf '    Pick %bconfig%b to toggle verbose or switch profile · %bdotfiles help%b for the full reference\n' \
+        "$BOLD$WHITE" "$RESET" "$BOLD$WHITE" "$RESET"
+    echo
+}
+
+# Map a typed selection key → command id. Empty echo means no match.
+_menu_resolve_key() {
+    local input="$1" i
+    # Direct key match (number or letter).
+    for i in "${!_MENU_KEYS[@]}"; do
+        if [[ "${_MENU_KEYS[i]}" == "$input" ]]; then
+            echo "${_MENU_IDS[i]}"
+            return 0
+        fi
+    done
+    # Also accept the command name itself (e.g. `status`, `install`).
+    for i in "${!_MENU_IDS[@]}"; do
+        if [[ "${_MENU_IDS[i]}" == "$input" ]]; then
+            echo "${_MENU_IDS[i]}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Wait for a single keystroke before returning to the menu. Pressing Enter
+# (empty read result) also returns. Other keys are ignored.
+_menu_pause() {
+    echo
+    printf '%bPress Enter to return to menu …%b' "$GRAY" "$RESET"
+    read -r _ 2>/dev/null || true
+}
+
+# Render the Config sub-screen — interactive change of profile / verbose, plus
+# raw-file edit. Each line is a self-describing action ("verbose true → false"),
+# numbered. Empty Enter or `b` returns to the main menu.
+_menu_config_screen() {
+    local choice n
+    # Parallel arrays: kind/value/label for each numbered action.
+    local -a kinds vals labels
+
+    while true; do
+        # Rebuild action list each iteration — values can change after we act.
+        kinds=(); vals=(); labels=()
+
+        local cur_verbose new_verbose
+        cur_verbose="$(_config_saved_value verbose)"
+        [[ "$cur_verbose" == "true" ]] && new_verbose="false" || new_verbose="true"
+        kinds+=("verbose"); vals+=("$new_verbose")
+        labels+=("$(printf '%-9s %b%-5s%b → %b%-5s%b   %b(toggle)%b' \
+            "verbose" \
+            "$WHITE" "$cur_verbose" "$RESET" \
+            "$BOLD$YELLOW" "$new_verbose" "$RESET" \
+            "$DIM" "$RESET")")
+
+        local cur_profile p
+        cur_profile="$(_config_saved_value profile)"
+        while IFS= read -r p; do
+            [[ "$p" == "$cur_profile" ]] && continue
+            kinds+=("profile"); vals+=("$p")
+            labels+=("$(printf '%-9s %b%-5s%b → %b%-5s%b' \
+                "profile" \
+                "$WHITE" "$cur_profile" "$RESET" \
+                "$BOLD$YELLOW" "$p" "$RESET")")
+        done < <(list_valid_profiles)
+
+        kinds+=("edit"); vals+=("")
+        labels+=("$(printf '%-9s %b(open %s in %s)%b' \
+            "edit file" \
+            "$DIM" "${CONFIG_FILE/#$HOME/~}" "${EDITOR:-vi}" "$RESET")")
+
+        # ---- Render the screen ----
+        clear 2>/dev/null
+
+        # Centered title bar
+        local cols=72 left="DOTFILES(1)" right="DOTFILES(1)" title="Config"
+        local pad_l=$(( (cols - ${#left} - ${#title} - ${#right}) / 2 ))
+        (( pad_l < 1 )) && pad_l=1
+        local pad_r=$(( cols - ${#left} - pad_l - ${#title} - ${#right} ))
+        (( pad_r < 1 )) && pad_r=1
+        printf '%b%s%*s%b%s%b%*s%s%b\n' \
+            "$BOLD$BLUE" "$left" "$pad_l" "" \
+            "$BOLD$WHITE" "$title" "$BOLD$BLUE" \
+            "$pad_r" "" "$right" "$RESET"
+        echo
+
+        # CURRENT — what's saved right now.
+        printf '%bCURRENT%b\n' "$BOLD$CYAN" "$RESET"
+        printf '    %bprofile%b    %b%-12s%b %b(currently active)%b\n' \
+            "$GRAY" "$RESET" "$BOLD$YELLOW" "$cur_profile" "$RESET" "$DIM" "$RESET"
+        printf '    %bverbose%b    %b%-12s%b %b(debug output on shell startup)%b\n' \
+            "$GRAY" "$RESET" "$WHITE" "$cur_verbose" "$RESET" "$DIM" "$RESET"
+        printf '    %broot%b       %b%-12s%b %b(repository location)%b\n' \
+            "$GRAY" "$RESET" "$WHITE" "${DOTFILES_ROOT/#$HOME/~}" "$RESET" "$DIM" "$RESET"
+        echo
+
+        # CHANGE — numbered actionable lines.
+        printf '%bCHANGE%b\n' "$BOLD$CYAN" "$RESET"
+        local i
+        for i in "${!labels[@]}"; do
+            printf '    %b%d%b   %s\n' \
+                "$BOLD$MAGENTA" $((i + 1)) "$RESET" \
+                "${labels[i]}"
+        done
+        echo
+        printf '    %bb%b   back to main menu\n' "$BOLD$MAGENTA" "$RESET"
+        echo
+
+        # Prompt — same glyph and color as the main menu.
+        printf '  %b❯%b ' "$BOLD$GREEN" "$RESET"
+        if ! IFS= read -r choice; then
+            echo
+            return
+        fi
+
+        # ---- Dispatch ----
+        case "$choice" in
+            ''|b|back|q|quit) return ;;
+        esac
+
+        if [[ "$choice" =~ ^[0-9]+$ ]]; then
+            n=$((choice - 1))
+            if (( n < 0 || n >= ${#kinds[@]} )); then
+                _dotfiles_log_error "no option ${choice} (valid: 1-${#kinds[@]}, or b)"
+                sleep 1
+                continue
+            fi
+            echo
+            case "${kinds[$n]}" in
+                verbose|profile) config_set "${kinds[$n]}" "${vals[$n]}" ;;
+                edit)            "${EDITOR:-vi}" "$CONFIG_FILE" ;;
+            esac
+            # Brief pause so user sees the confirmation line before redraw.
+            [[ "${kinds[$n]}" != "edit" ]] && sleep 0.6
+        else
+            _dotfiles_log_error "unknown choice: $choice"
+            sleep 1
+        fi
+    done
+}
+
+# Dispatch a command id. Return code semantics: 0 → continue loop, 1 → quit.
+_menu_execute() {
+    local id="$1"
+    case "$id" in
+        install)   install_dotfiles;        _menu_pause ;;
+        sync)      sync_dotfiles;           _menu_pause ;;
+        status)    status_command;          _menu_pause ;;
+        config)    _menu_config_screen ;;   # has its own loop, no pause
+        doctor)    doctor_dotfiles;         _menu_pause ;;
+        clean)     clean_dotfiles;          _menu_pause ;;
+        uninstall) uninstall_dotfiles && return 1 || _menu_pause ;;
+        quit)      return 1 ;;
+        *)         return 0 ;;
+    esac
+    return 0
 }
 
 interactive_menu() {
-    # Load existing configuration for interactive session
     load_config
 
-    while true; do
-        show_menu
-        read -r choice
+    # Non-TTY (piped, CI, headless install) → skip the menu and run install.
+    if [[ ! -t 0 || ! -t 1 ]]; then
+        install_dotfiles
+        return
+    fi
 
-        case "$choice" in
-            1)
-                install_dotfiles
-                ;;
-            2)
-                update_dotfiles
-                echo -e "\n${GRAY}Press Enter to continue...${RESET}"
-                read -r
-                ;;
-            3)
-                sync_dotfiles
-                ;;
-            4)
-                clean_dotfiles
-                echo -e "\n${GRAY}Press Enter to continue...${RESET}"
-                read -r
-                ;;
-            5)
-                doctor_dotfiles
-                echo -e "\n${GRAY}Press Enter to continue...${RESET}"
-                read -r
-                ;;
-            6)
-                create_symlinks
-                echo -e "\n${GRAY}Press Enter to continue...${RESET}"
-                read -r
-                ;;
-            7)
-                install_packages
-                echo -e "\n${GRAY}Press Enter to continue...${RESET}"
-                read -r
-                ;;
-            8)
-                echo -n "Enter new profile (core/full): "
-                read -r new_profile
-                if validate_profile "$new_profile" 2>/dev/null; then
-                    export DOTFILES_PROFILE="$new_profile"
-                    save_config
-                    _dotfiles_log_success "Profile changed to: $new_profile"
-                fi
-                sleep 2
-                ;;
-            u)
-                uninstall_dotfiles && exit 0
-                echo -e "\n${GRAY}Press Enter to continue...${RESET}"
-                read -r
-                ;;
-            t)
-                # Toggle verbose mode — routes through config_set so the
-                # write path (validation + marker-safe save) stays in one place.
-                if is_verbose; then
-                    config_set verbose false
-                else
-                    config_set verbose true
-                fi
-                sleep 2
-                ;;
-            h)
-                echo
-                echo -e "${BOLD}${MAGENTA}Help - Dotfiles Manager${RESET}"
-                echo
-                echo -e "${BOLD}${WHITE}Installation:${RESET}"
-                echo -e "  ${CYAN}${BULLET}${RESET} Download and run (recommended):"
-                echo -e "    ${GRAY}curl --proto '=https' --tlsv1.2 -fsSL $INSTALL_COMMAND_URL -o /tmp/dotfiles-install.sh${RESET}"
-                echo -e "    ${GRAY}bash /tmp/dotfiles-install.sh${RESET}"
-                echo
-                echo -e "${BOLD}${WHITE}Profiles:${RESET}"
-                echo -e "  ${YELLOW}minimal${RESET}  - Shell essentials (sheldon, tmux)"
-                echo -e "  ${YELLOW}server${RESET}   - Shell + utilities + vfox version manager"
-                echo
-                echo -e "${BOLD}${WHITE}Environment Variables:${RESET}"
-                echo -e "  ${CYAN}DOTFILES_ROOT${RESET}     - Installation directory"
-                echo -e "  ${CYAN}DOTFILES_PROFILE${RESET}  - Profile selection"
-                echo -e "  ${CYAN}DOTFILES_VERBOSE${RESET}  - Verbose logging (affects shell startup only)"
-                echo -e "  ${GRAY}Note: dotfiles menu always shows detailed output for debugging${RESET}"
-                echo
-                echo -e "${GRAY}Press Enter to continue...${RESET}"
-                read -r
-                ;;
-            q)
-                save_config
-                _dotfiles_log_success "Goodbye!"
-                exit 0
-                ;;
-            *) _dotfiles_log_error "Invalid choice"; sleep 1 ;;
-        esac
+    # Menu actions run install/update/sync which would otherwise `exec zsh`
+    # at the end and kill the bash menu process. Pin DOTFILES_NO_RELOAD so
+    # control returns here. The user can `exec zsh` manually after quitting.
+    export DOTFILES_NO_RELOAD=true
+
+    local choice id
+    while true; do
+        clear
+        _menu_render_page
+        printf '  %b❯%b ' "$BOLD$GREEN" "$RESET"
+        # Single line of input. read -r returns "" on bare Enter, which we
+        # treat as a refresh (re-render with updated live state).
+        if ! IFS= read -r choice; then
+            # EOF (Ctrl-D) — treat as quit.
+            echo; break
+        fi
+
+        # Empty input → refresh-only (loops back, re-renders the live state).
+        [[ -z "$choice" ]] && continue
+
+        # Resolve. Unknown input prints a one-liner and re-renders next cycle.
+        if id="$(_menu_resolve_key "$choice")"; then
+            _menu_execute "$id" || break
+        else
+            _dotfiles_log_error "unknown selection: $choice"
+            local _sug
+            _sug="$(_dotfiles_did_you_mean "$choice" "${_MENU_IDS[@]}" 2>/dev/null)"
+            [[ -n "$_sug" ]] && _dotfiles_log_hint "try: $_sug"
+            sleep 1
+        fi
     done
+
+    echo
+    _dotfiles_log_summary "bye"
 }
 
 # =============================================================================
@@ -1789,61 +2054,106 @@ show_version() {
 }
 
 show_usage() {
-    show_version
+    # Colored man-page rendering. Section headers in bold cyan, command
+    # names in bold white, descriptions in gray, examples in bold green.
+    local cols=72 left="DOTFILES(1)" right="DOTFILES(1)"
+    local title="Cross-Platform Dotfiles Manager"
+    local pad_l=$(( (cols - ${#left} - ${#title} - ${#right}) / 2 ))
+    (( pad_l < 1 )) && pad_l=1
+    local pad_r=$(( cols - ${#left} - pad_l - ${#title} - ${#right} ))
+    (( pad_r < 1 )) && pad_r=1
+    printf '%b%s%*s%b%s%b%*s%s%b\n' \
+        "$BOLD$BLUE" "$left" "$pad_l" "" \
+        "$BOLD$WHITE" "$title" "$BOLD$BLUE" \
+        "$pad_r" "" "$right" "$RESET"
     echo
-    cat << EOF
-USAGE:
-  $SCRIPT_NAME [COMMAND] [OPTIONS]
 
-COMMANDS:
-  clean | c    Remove orphaned symlinks pointing into the repo (dry-run default).
-               Pass --force to apply. Never touches user-created symlinks.
-  config       Get/set/list configuration values. Run \`dotfiles config help\`.
-               Examples: \`dotfiles config set verbose true\`,
-                         \`dotfiles config get profile\`
-  doctor | d   Read-only health check: tools, repo, symlinks, packages.
-               Exit code = number of issues.
-  help         Show this help message
-  install | i  Symlink configs and install packages (default).
-               Does NOT pull from git — safe to run on a dirty working tree.
-               For fresh machines: clones the repo first.
-  link         Create or refresh symlinks only
-  packages     Install required packages for current profile
-  profile      Change active profile (core | full). Alias for \`config set profile\`.
-  status | st  Fast read-only snapshot: profile, git state, symlinks, packages.
-  sync | s     update && install in one step.
-               Pass --stash to auto-stash local changes before pulling.
-  uninstall    Remove all symlinks, packages config, and the dotfiles directory
-  update | u   Pull latest changes (warn-and-abort on dirty tree by default).
-               Pass --stash to auto-stash + rebase + pop.
-               Aborts cleanly on conflict, preserving local changes in stash.
-  version      Show version information
+    printf '%bNAME%b\n' "$BOLD$CYAN" "$RESET"
+    printf '    %bdotfiles%b — manage shell config and packages across machines\n' \
+        "$BOLD$WHITE" "$RESET"
+    echo
 
-Each command's short form works as a subcommand (\`dotfiles i\`) and as a
-dash-flag (\`dotfiles -i\`). Subcommand form is preferred.
+    printf '%bSYNOPSIS%b\n' "$BOLD$CYAN" "$RESET"
+    printf '    %bdotfiles%b [%b-v%b|%b-q%b|%b--json%b|%b--no-reload%b|%b--no-banner%b] [%bCOMMAND%b] [%bARGS%b]\n' \
+        "$BOLD$WHITE" "$RESET" \
+        "$YELLOW" "$RESET" "$YELLOW" "$RESET" "$YELLOW" "$RESET" "$YELLOW" "$RESET" "$YELLOW" "$RESET" \
+        "$BOLD$WHITE" "$RESET" "$DIM" "$RESET"
+    echo
 
-OPTIONS:
-  -v, --verbose    Enable verbose output (shell startup + CLI details)
-  -q, --quiet      Suppress non-error output (errors/warnings still print)
-  --no-banner      Skip the dotfiles banner (handy for scripts/CI)
-  --no-reload      Don't \`exec zsh\` at the end of install/update
-  --json           Machine-readable JSON output (status, config list)
-  -h, --help       Show this help message
+    printf '%bCOMMANDS%b\n' "$BOLD$CYAN" "$RESET"
+    _help_cmd "install"   "i"  "Symlink configs and install packages (default)"
+    _help_cmd "update"    "u"  "git pull --rebase (use --stash on dirty tree)"
+    _help_cmd "sync"      "s"  "update + install in one step"
+    _help_cmd "status"    "st" "Snapshot of profile, git, symlinks, packages"
+    _help_cmd "config"    ""   "get/set/list/edit/path/keys configuration"
+    _help_cmd "doctor"    "d"  "Read-only health check (badge grid + detail)"
+    _help_cmd "clean"     "c"  "Remove orphaned symlinks (dry-run default)"
+    _help_cmd "link"      ""   "Refresh symlinks only (no package work)"
+    _help_cmd "packages"  ""   "Install packages for current profile"
+    _help_cmd "uninstall" ""   "Remove all symlinks, package configs, and repo"
+    _help_cmd "version"   ""   "Show version and source URL"
+    _help_cmd "help"      ""   "Show this help message"
+    echo
 
-  Global flags may appear before or after the subcommand.
+    printf '%bOPTIONS%b\n' "$BOLD$CYAN" "$RESET"
+    _help_opt "-v, --verbose"  "Verbose output (shell startup + CLI details)"
+    _help_opt "-q, --quiet"    "Suppress non-error output"
+    _help_opt "--json"         "Machine-readable JSON (status, config list)"
+    _help_opt "--no-reload"    "Skip 'exec zsh' at the end of install/update"
+    _help_opt "--no-banner"    "Skip the dotfiles banner (handy for scripts/CI)"
+    _help_opt "-h, --help"     "Show this help message"
+    printf '    %bGlobal flags may appear before or after the subcommand.%b\n' "$DIM" "$RESET"
+    echo
 
-EXAMPLES:
-  $SCRIPT_NAME                    # Interactive menu
-  $SCRIPT_NAME install            # Symlinks + packages (no git)
-  $SCRIPT_NAME i                  # Same as install (preferred short form)
-  $SCRIPT_NAME update --stash     # Pull + auto-stash local changes
-  $SCRIPT_NAME u --stash          # Same as above
-  $SCRIPT_NAME d                  # Run health check
-  $SCRIPT_NAME profile full       # Switch to full profile
-  DOTFILES_PROFILE=full $SCRIPT_NAME install
+    printf '%bEXAMPLES%b\n' "$BOLD$CYAN" "$RESET"
+    _help_ex "dotfiles"                          "Open the interactive menu"
+    _help_ex "dotfiles install"                  "Symlinks + packages (no git)"
+    _help_ex "dotfiles update --stash"           "Pull latest, auto-stash local changes"
+    _help_ex "dotfiles status --json | jq ."     "Machine-readable status snapshot"
+    _help_ex "dotfiles config set profile core"  "Switch active profile"
+    _help_ex "dotfiles doctor"                   "Run the health check"
+    echo
 
-For more information, visit: $DOCS_URL
-EOF
+    printf '%bONE-LINE INSTALL%b  %b(clean machine)%b\n' "$BOLD$CYAN" "$RESET" "$DIM" "$RESET"
+    printf '    %bcurl -fsSL %s | bash%b\n' "$BOLD$GREEN" "$INSTALL_COMMAND_URL" "$RESET"
+    echo
+
+    printf '%bSEE ALSO%b\n' "$BOLD$CYAN" "$RESET"
+    printf '    %bdotfiles config help%b · %bdotfiles status%b · %bdotfiles doctor%b\n' \
+        "$BOLD$WHITE" "$RESET" "$BOLD$WHITE" "$RESET" "$BOLD$WHITE" "$RESET"
+    echo
+    printf '    %bSource:%b %s\n' "$GRAY" "$RESET" "$DOCS_URL"
+}
+
+# Render one COMMANDS row: bold name, dim alias, gray description.
+# Args: <name> <alias-or-empty> <description>
+_help_cmd() {
+    local name="$1" alias="$2" desc="$3"
+    if [[ -n "$alias" ]]; then
+        printf '    %b%-10s%b %b%-3s%b  %b%s%b\n' \
+            "$BOLD$WHITE" "$name" "$RESET" \
+            "$DIM" "$alias" "$RESET" \
+            "$GRAY" "$desc" "$RESET"
+    else
+        printf '    %b%-10s%b      %b%s%b\n' \
+            "$BOLD$WHITE" "$name" "$RESET" \
+            "$GRAY" "$desc" "$RESET"
+    fi
+}
+
+# Render one OPTIONS row.
+_help_opt() {
+    printf '    %b%-16s%b  %b%s%b\n' \
+        "$BOLD$YELLOW" "$1" "$RESET" \
+        "$GRAY" "$2" "$RESET"
+}
+
+# Render one EXAMPLES row.
+_help_ex() {
+    printf '    %b$%b %b%-40s%b  %b# %s%b\n' \
+        "$DIM" "$RESET" \
+        "$BOLD$GREEN" "$1" "$RESET" \
+        "$DIM" "$2" "$RESET"
 }
 
 # =============================================================================
