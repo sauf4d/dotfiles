@@ -4,11 +4,28 @@ PKG_NAME="eza"
 PKG_DESC="A modern replacement for ls"
 
 pkg_init() {
-    alias ls="eza -g"
-    alias ll="eza -lg"
-    alias la="eza -lag"
-    alias lt="eza --tree"
-    alias lta="eza --tree -ag"
+    # Base flags applied to every alias
+    local _e="eza --group-directories-first --icons=auto"
+
+    # Short listing
+    alias ls="$_e"
+    alias la="$_e -a"
+
+    # Long listing — git column + relative timestamps
+    alias ll="$_e -l --git --time-style=relative"
+    alias lla="$_e -la --git --time-style=relative"
+
+    # Tree views (depth-limited variants for large trees)
+    alias lt="$_e --tree"
+    alias lt2="$_e --tree --level=2"
+    alias lt3="$_e --tree --level=3"
+    alias lta="$_e --tree -a"
+
+    # Sort by modification time, newest first — useful in active project dirs
+    alias lm="$_e -l --sort=modified --reverse --time-style=relative"
+
+    # Sort by size, largest first
+    alias lz="$_e -l --sort=size --reverse"
 }
 
 pkg_doctor() {

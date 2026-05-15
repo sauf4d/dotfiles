@@ -17,7 +17,10 @@ pkg_post_install() {
 }
 
 pkg_init() {
-    export FD_OPTIONS="--follow --exclude .git --exclude node_modules"
+    # --follow: cross symlinks (e.g. monorepo links)
+    # --hidden: include dotfiles — exclusions live in config/fd/ignore so
+    #           they stay version-controlled and out of this env var.
+    export FD_OPTIONS="--follow --hidden"
 }
 
 pkg_doctor() {
