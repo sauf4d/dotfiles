@@ -1,0 +1,40 @@
+# nanorc — nano editor configuration
+# Symlinked to ~/.nanorc by the dotfiles installer.
+
+# ── Display ───────────────────────────────────────────────────────────────────
+set linenumbers       # line numbers in the left margin
+set constantshow      # always show cursor position (line, col) in status bar
+set numbercolor cyan
+
+# ── Editing ───────────────────────────────────────────────────────────────────
+set autoindent        # maintain indentation level of the previous line
+set tabsize 4
+set tabstospaces      # insert spaces when Tab is pressed
+set trimblanks        # strip trailing whitespace on save
+
+# ── Navigation & input ────────────────────────────────────────────────────────
+set mouse             # click to position cursor, scroll with wheel
+set smooth            # scroll line-by-line instead of half-page jumps
+
+# ── Search ────────────────────────────────────────────────────────────────────
+set casesensitive     # case-sensitive by default; toggle with Alt+C
+
+# ── Files ─────────────────────────────────────────────────────────────────────
+set backup            # keep one backup (<file>~) before each write
+set historylog        # persist search/replace history across sessions
+set multibuffer       # ^R opens files in additional buffers instead of replacing
+
+# ── Interface ─────────────────────────────────────────────────────────────────
+set softwrap          # wrap display at screen edge without inserting newlines
+set morespace         # use the blank line below the title bar for content
+
+# ── Syntax highlighting ───────────────────────────────────────────────────────
+# Uncomment the line that matches where nano stores its highlight files.
+# Modern nano ships them; the system /usr/bin/nano on macOS (pico) does not.
+#
+# Linux (most distros):
+# include "/usr/share/nano/*.nanorc"
+#
+# macOS via Homebrew — install real nano first: brew install nano
+# include "/opt/homebrew/share/nano/*.nanorc"    # Apple Silicon
+# include "/usr/local/share/nano/*.nanorc"       # Intel
