@@ -8,11 +8,12 @@ using idempotency guards to skip already-active initialization.
 
 ## Install
 
+### macOS / Linux
+
+One-liner — clones the repo, symlinks configs, and installs missing packages:
+
 ```bash
-curl --proto '=https' --tlsv1.2 -fsSL \
-  https://raw.githubusercontent.com/ved0el/dotfiles/main/bin/dotfiles \
-  -o /tmp/dotfiles-install.sh
-bash /tmp/dotfiles-install.sh
+curl -fsSL https://tinyurl.com/get-dotfiles | bash
 ```
 
 Or clone and run directly:
@@ -22,7 +23,41 @@ git clone https://github.com/ved0el/dotfiles.git ~/.dotfiles
 ~/.dotfiles/bin/dotfiles install
 ```
 
-After install, reload: `exec zsh`
+When the one-liner finishes it prints a NEXT STEPS block — open a new terminal
+or run `exec zsh` from your current one.
+
+### Windows
+
+Windows uses a separate, minimal entry point: a `Makefile` that handles
+**symlinks only**. Package installation is up to you (use `scoop`, `winget`,
+or installers of your choice).
+
+Prereqs (one-time):
+- **Git for Windows** — provides `git`, `bash`, and `make`. Install via
+  `scoop install git` or the official installer.
+- **Developer Mode on** — Settings → Privacy & security → For developers.
+  Lets non-admin shells create native symlinks; without it, `make link` fails
+  with a clear hint.
+
+Then:
+
+```powershell
+git clone https://github.com/ved0el/dotfiles.git $HOME\.dotfiles
+cd $HOME\.dotfiles
+make link        # create / refresh symlinks
+make verify      # report OK / MISSING / STALE / CONFLICT
+make unlink      # remove only the symlinks we created
+```
+
+Install the tools you actually want yourself, e.g.:
+
+```powershell
+scoop install bat fd ripgrep fzf zoxide eza jq sheldon vfox
+```
+
+The Makefile auto-discovers entries in `config/*` and skips macOS-only
+daemons (`skhd`, `yabai`). `config/claude/*` is symlinked file-by-file into
+`~/.claude/` to match the bash CLI's behavior.
 
 ---
 
@@ -33,45 +68,60 @@ Profiles are cumulative: `full` includes everything in `core`.
 | Profile | Tools |
 |---------|-------|
 | `core`  | sheldon (plugin manager), tmux |
-| `full`  | everything in core + bat, eza, fd, fzf, jq, ripgrep, tealdeer, vfox, zoxide |
+| `full`  | everything in core + bat, eza, fd, fzf, jq, ripgrep, vfox, zoxide |
 
 The active profile is stored in `~/.zshenv` and read by every zsh instance.
+
+Valid profile names are derived from the filesystem — any directory under
+`zsh/packages/<name>/` is a valid profile. Add a new one with
+`mkdir zsh/packages/dev && touch zsh/packages/dev/foo.zsh`; no code changes
+needed.
 
 Switch profiles:
 
 ```bash
-dotfiles profile full
+dotfiles config set profile full
 exec zsh
 ```
 
 Legacy names `minimal` (→ `core`) and `server` (→ `full`) are accepted and
-auto-migrated on next `dotfiles install`.
+auto-migrated on next save.
 
 ---
 
 ## CLI reference
 
-Run `dotfiles` with no arguments in an interactive terminal to open the menu.
+Run `dotfiles` with no arguments in an interactive terminal to open the menu —
+8 numbered options (install, sync, status, config, doctor, clean, uninstall,
+quit). Picking `config` opens a sub-screen with toggle actions for `verbose`,
+profile switches, and `$EDITOR ~/.zshenv`. Each option shows the resulting
+value before you press (`verbose true → false`).
 
 | Command | Short | Description |
 |---------|-------|-------------|
-| `install` | `-i` | Symlink configs + install packages. Does not pull from git. On a fresh machine, clones the repo first. |
-| `update [--stash]` | `-u` | `git pull --rebase`. Aborts on dirty tree unless `--stash` is passed. |
-| `sync [--stash]` | `-s` | `update` then `install` in one step. |
+| `install` | `i` | Symlink configs + install packages. Does not pull from git. On a fresh machine, clones the repo first. |
+| `update [--stash]` | `u` | `git pull --rebase`. Aborts on dirty tree unless `--stash` is passed. |
+| `sync [--stash]` | `s` | `update` then `install` in one step. |
+| `status` | `st` | Snapshot: profile, git state, symlink count, package count. Supports `--json`. |
+| `config <action>` | — | `get <key>` / `set <key> <val>` / `list` / `edit` / `path` / `keys`. Run `dotfiles config help` for details. |
+| `doctor` | `d` | Read-only health check (badge grid + per-package detail). Exit code = number of issues. |
+| `clean [--force]` | `c` | Report orphaned symlinks (dry-run). Pass `--force` to remove. |
 | `link` | — | Create or refresh symlinks only. |
 | `packages` | — | Install packages for the active profile only. |
-| `profile <name>` | — | Change active profile (`core` or `full`). Writes to `~/.zshenv`. |
-| `clean [--force]` | `-c` | Report orphaned symlinks pointing into the repo (dry-run). Pass `--force` to remove. |
-| `doctor` | `-d` | Read-only health check. Exit code = number of issues found. |
+| `profile <name>` | — | Shorthand for `config set profile <name>`. |
 | `uninstall` | — | Remove all symlinks, packages, and the repo directory. Interactive prompt unless stdin is non-TTY. |
 | `version` | — | Print version info. |
 | `help` | `-h` | Print usage. |
 
-Global options (may be placed before any command):
+Global flags (may appear before *or* after the subcommand):
 
 | Flag | Description |
 |------|-------------|
-| `-v`, `--verbose` | Enable verbose output for this invocation only. |
+| `-v`, `--verbose` | Enable verbose output (timestamped, scope-tagged debug lines). |
+| `-q`, `--quiet` | Suppress non-error output. Errors and warnings still print. |
+| `--json` | Machine-readable JSON output for `status` and `config list`. |
+| `--no-reload` | Skip `exec zsh` at the end of `install` / `update` / `sync`. |
+| `--no-banner` | Skip the dotfiles banner (handy for scripts/CI). |
 | `-h`, `--help` | Show usage. |
 
 ---

@@ -21,7 +21,7 @@ readonly SCRIPT_NAME="dotfiles"
 
 # URLs - Easy to update
 readonly REPO_URL="https://github.com/ved0el/dotfiles.git"
-readonly INSTALL_COMMAND_URL="https://raw.githubusercontent.com/ved0el/dotfiles/main/bin/dotfiles"
+readonly INSTALL_COMMAND_URL="https://tinyurl.com/get-dotfiles"
 readonly DOCS_URL="https://github.com/ved0el/dotfiles"
 
 # Configuration file location

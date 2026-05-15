@@ -39,21 +39,30 @@ Loaded on every shell start, before packages:
 
 ## Profile system
 
-Profiles are declared in `zshrc` and mirrored in `bin/dotfiles:_iter_profile_packages`.
+Profiles are **derived from the filesystem** — `core` is always implicit, and any
+directory under `zsh/packages/<name>/` is a valid profile. Two helpers in
+`bin/dotfiles` are the single source of truth:
 
-```zsh
-case "${DOTFILES_PROFILE}" in
-    core|minimal)
-        _pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core") ;;
-    full|server)
-        _pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core"
-                   "$DOTFILES_ROOT/zsh/packages/full") ;;
-    *)  # unknown profile — falls back to core, prints warning
-esac
+```bash
+list_valid_profiles      # echoes valid profile names, one per line
+dotfiles_profile_dirs P  # echoes the package dirs to load, in order
 ```
 
-`full` is cumulative: it loads `core/` then `full/`. There is no profile that
-loads only `full/` packages.
+`zshrc` uses the same derivation pattern (with legacy aliases inlined for
+`minimal`/`server`):
+
+```zsh
+typeset -a _pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core")
+if [[ "${DOTFILES_PROFILE}" != "core" && "${DOTFILES_PROFILE}" != "minimal" ]]; then
+    local _profile="${DOTFILES_PROFILE}"
+    [[ "$_profile" == "server" ]] && _profile="full"
+    [[ -d "$DOTFILES_ROOT/zsh/packages/$_profile" ]] && _pkg_dirs+=("$DOTFILES_ROOT/zsh/packages/$_profile")
+fi
+```
+
+All profiles are cumulative: they load `core/` then `<profile>/`. Adding a new
+profile is `mkdir zsh/packages/dev/` plus any package files — no code edits in
+`bin/dotfiles` or `zshrc`.
 
 ### Legacy migration
 
@@ -438,11 +447,31 @@ multiple times in a session.
 
 ---
 
+## Windows runtime
+
+Windows uses a separate, minimal entry point: `make link` from the repo's
+`Makefile`. Symlinks only — package installation is the user's
+responsibility (scoop / winget / manual).
+
+Recipes run in **Git Bash**, force-pinned via `git --exec-path` so plain
+`bash.exe` on PATH (which often resolves to WSL bash) can't hijack the
+shell. Native symlinks require Windows Developer Mode or admin; the `link`
+target probes capability first and exits with a clear hint when neither is
+available.
+
+The Makefile auto-discovers `config/*` and excludes macOS-only daemons
+(`skhd`, `yabai`). `config/claude/*` is symlinked file-by-file into
+`~/.claude/` to match the bash CLI. Targets: `link`, `unlink`, `verify`.
+No package contract, no hook dispatch, no doctor — by design.
+
+---
+
 ## Architectural decisions
 
 | Decision | Rationale |
 |----------|-----------|
 | Bash for CLI, zsh for packages | `bin/dotfiles` runs before zsh is configured and must work on bare Debian. Zsh-specific syntax (`typeset`, glob qualifiers) cannot be used there. |
+| Windows = Makefile, not a pwsh CLI port | Windows users get symlinks (the only piece truly worth automating) without dragging in a parallel runtime, hook contract, or scoop integration. Packages are installed manually. Keeps maintenance to one CLI (bash) plus a small declarative Makefile. |
 | One file per package | Adding a tool requires exactly one new file and zero core changes. Removal is `rm <file>`. No manifest to keep in sync. |
 | Optional startup hooks, required `pkg_uninstall` | Startup hooks are additive — a missing one degrades gracefully. `pkg_uninstall` is destructive; leaving it undefined would silently skip teardown, which is worse than failing loudly. |
 | Cumulative profile model (not independent sets) | Reduces duplication and ensures `full` always has a working `core` base. A machine can upgrade from `core` to `full` without re-running core install steps. |

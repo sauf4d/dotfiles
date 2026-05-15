@@ -7,6 +7,8 @@
 | `bin/dotfiles` | **Bash** (`#!/usr/bin/env bash`) | Runs before zsh is configured. Must work on minimal systems. Never use `#!/usr/bin/env zsh` here. |
 | `zsh/**/*.zsh` | **Zsh** | May use zsh-specific builtins: `typeset`, `zstyle`, glob qualifiers (`(N)`, `(#qN.md+7)`, etc.). |
 | `zsh/lib/log.sh` | **POSIX sh** (`#!/bin/sh`) | Sourced by both bash (`bin/dotfiles`) and zsh (`installer.zsh`). Must stay POSIX-compatible. |
+| `zsh/lib/ui.sh` | **Bash** (`#!/usr/bin/env bash`) | Sourced ONLY by `bin/dotfiles`. Bash-only helpers (spinner, table, badge, progress, Levenshtein). Never sourced by zsh shell startup. |
+| `Makefile` | **GNU make + Git Bash** (Windows-only) | Hard-fails on macOS/Linux. Force-pins `SHELL` to Git-Bash via `git --exec-path`. Symlinks only — no package install, no hook dispatch. |
 
 Do not mix languages across these boundaries.
 
@@ -44,6 +46,27 @@ hooks and shell startup):
 without `-v`.
 
 Colors are disabled automatically when stdout is not a TTY or `NO_COLOR` is set.
+
+### Debug scope tags
+
+`_dotfiles_log_debug` reads `$DOTFILES_LOG_SCOPE` and renders
+`[HH:MM:SS.mmm] [scope] message (+Δms)`. `init_package_template` sets the scope
+to `PKG:<name>` automatically, so every debug call from a package's hooks is
+auto-tagged. The first arg can also be `[SCOPE]` or `SCOPE` literally — both
+are detected and stripped.
+
+### UI primitives (bash-only, `bin/dotfiles`)
+
+`zsh/lib/ui.sh` adds bash-only helpers used by the CLI. All primitives respect
+`DOTFILES_QUIET=true` and degrade gracefully on non-TTY / `NO_COLOR`:
+
+| Helper | Use |
+|--------|-----|
+| `_dotfiles_spin "<label>" -- <cmd>` | Spinner around a long subprocess. Replaces line with `✓ label (Ns)` or `✗ label (Ns)` + tail of captured output. |
+| `_dotfiles_table <k1> <v1> <k2> <v2> ...` | Aligned `key : value` table. Used by `status` and `config list`. |
+| `_dotfiles_badge <OK\|WARN\|FAIL\|INFO> <label>` | 256-color background pill. Used by `doctor` health-grid. |
+| `_dotfiles_progress <cur> <total> <label>` | In-place progress bar (20-char). |
+| `_dotfiles_did_you_mean <input> <candidates...>` | Pure-bash Levenshtein for typo suggestions. |
 
 ---
 
