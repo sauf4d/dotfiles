@@ -2318,6 +2318,21 @@ _menu_config_screen() {
                 "$BOLD$YELLOW" "$p" "$RESET")")
         done < <(list_valid_profiles)
 
+        # exclude / extra — entered as comma-separated lists, empty clears.
+        local cur_exclude cur_extra
+        cur_exclude="$(_config_saved_value exclude)"
+        cur_extra="$(_config_saved_value extra)"
+        kinds+=("exclude"); vals+=("")
+        labels+=("$(printf '%-9s %b%-30s%b %b(enter new csv)%b' \
+            "exclude" \
+            "$WHITE" "${cur_exclude:-<none>}" "$RESET" \
+            "$DIM" "$RESET")")
+        kinds+=("extra"); vals+=("")
+        labels+=("$(printf '%-9s %b%-30s%b %b(enter new csv)%b' \
+            "extra" \
+            "$WHITE" "${cur_extra:-<none>}" "$RESET" \
+            "$DIM" "$RESET")")
+
         kinds+=("edit"); vals+=("")
         labels+=("$(printf '%-9s %b(open %s in %s)%b' \
             "edit file" \
@@ -2340,11 +2355,15 @@ _menu_config_screen() {
 
         # CURRENT — what's saved right now.
         printf '%bCURRENT%b\n' "$BOLD$CYAN" "$RESET"
-        printf '    %bprofile%b    %b%-12s%b %b(currently active)%b\n' \
+        printf '    %bprofile%b    %b%-30s%b %b(currently active)%b\n' \
             "$GRAY" "$RESET" "$BOLD$YELLOW" "$cur_profile" "$RESET" "$DIM" "$RESET"
-        printf '    %bverbose%b    %b%-12s%b %b(debug output on shell startup)%b\n' \
+        printf '    %bverbose%b    %b%-30s%b %b(debug output on shell startup)%b\n' \
             "$GRAY" "$RESET" "$WHITE" "$cur_verbose" "$RESET" "$DIM" "$RESET"
-        printf '    %broot%b       %b%-12s%b %b(repository location)%b\n' \
+        printf '    %bexclude%b    %b%-30s%b %b(per-machine: drop these tools)%b\n' \
+            "$GRAY" "$RESET" "$WHITE" "${cur_exclude:-<none>}" "$RESET" "$DIM" "$RESET"
+        printf '    %bextra%b      %b%-30s%b %b(per-machine: add these tools)%b\n' \
+            "$GRAY" "$RESET" "$WHITE" "${cur_extra:-<none>}" "$RESET" "$DIM" "$RESET"
+        printf '    %broot%b       %b%-30s%b %b(repository location)%b\n' \
             "$GRAY" "$RESET" "$WHITE" "${DOTFILES_ROOT/#$HOME/~}" "$RESET" "$DIM" "$RESET"
         echo
 
@@ -2381,8 +2400,22 @@ _menu_config_screen() {
             fi
             echo
             case "${kinds[$n]}" in
-                verbose|profile) config_set "${kinds[$n]}" "${vals[$n]}" ;;
-                edit)            "${EDITOR:-vi}" "$CONFIG_FILE" ;;
+                verbose|profile)
+                    config_set "${kinds[$n]}" "${vals[$n]}"
+                    ;;
+                exclude|extra)
+                    # Prompt for a new comma-separated list. Empty clears the value.
+                    local _key="${kinds[$n]}"
+                    local _cur _new
+                    _cur="$(_config_saved_value "$_key")"
+                    printf '%bEnter new %s%b %b(current: %s; empty clears)%b: ' \
+                        "$BOLD" "$_key" "$RESET" "$DIM" "${_cur:-<none>}" "$RESET"
+                    IFS= read -r _new || _new=""
+                    config_set "$_key" "$_new"
+                    ;;
+                edit)
+                    "${EDITOR:-vi}" "$CONFIG_FILE"
+                    ;;
             esac
             # Brief pause so user sees the confirmation line before redraw.
             [[ "${kinds[$n]}" != "edit" ]] && sleep 0.6
