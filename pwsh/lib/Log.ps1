@@ -35,7 +35,10 @@ function Write-DotfilesDetail {
 }
 
 function Write-DotfilesResult {
-    param([Parameter(Mandatory)][string]$Label, [Parameter(Mandatory)][string]$Value)
+    param(
+        [Parameter(Mandatory)][string]$Label,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Value
+    )
     if (_IsQuiet) { return }
     Write-Host ("  {0}: {1}" -f $Label, $Value)
 }

@@ -28,7 +28,10 @@ bun    = "latest"
 # (github releases, aqua, asdf — mise picks the best one). If you ever need
 # to pin a specific backend, use the long form: "github:owner/repo".
 bat     = "latest"   # cat with syntax highlighting
-eza     = "latest"   # modern ls
+# eza ships only via cargo: in mise's default registry, which compiles from
+# source on Windows (needs MSVC). Force the aqua backend to fetch prebuilt
+# binaries on all platforms.
+"aqua:eza-community/eza" = "latest"   # modern ls
 fd      = "latest"   # friendlier find
 fzf     = "latest"   # fuzzy finder
 jq      = "latest"   # JSON processor
