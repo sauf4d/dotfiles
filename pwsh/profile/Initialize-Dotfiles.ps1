@@ -2,8 +2,8 @@
 # pwsh/profile/Initialize-Dotfiles.ps1 — PowerShell mirror of ~/.zshrc.
 #
 # Sourced from $PROFILE via a marker-delimited block written by
-# `dotfiles.ps1 install`. Loads shared libraries, then walks
-# pwsh/packages/core/ + pwsh/packages/$DOTFILES_PROFILE/ in alpha order.
+# `dotfiles.ps1 install`. Loads shared libraries, then walks the cumulative
+# package dirs for the active profile (core ⊆ server ⊆ develop) in alpha order.
 #
 # Boot order:
 #   1. Resolve $env:DOTFILES_ROOT and $env:DOTFILES_PROFILE (with fallbacks).
@@ -44,10 +44,12 @@ if (-not (Test-Path (Join-Path $env:DOTFILES_ROOT 'pwsh'))) {
     return
 }
 
-# Legacy alias: pre-rename `full` → `dev` (matches zsh-side migration).
-if ($env:DOTFILES_PROFILE -eq 'full') {
-    [Console]::Error.WriteLine("⚠  DOTFILES_PROFILE 'full' migrated to 'dev'")
-    $env:DOTFILES_PROFILE = 'dev'
+# Legacy aliases (mirrors bin/dotfiles set_defaults).
+$_legacyAliases = @{ minimal = 'core'; full = 'develop'; dev = 'develop' }
+if ($_legacyAliases.ContainsKey($env:DOTFILES_PROFILE)) {
+    $_oldProfile = $env:DOTFILES_PROFILE
+    $env:DOTFILES_PROFILE = $_legacyAliases[$_oldProfile]
+    [Console]::Error.WriteLine("⚠  DOTFILES_PROFILE '$_oldProfile' migrated to '$($env:DOTFILES_PROFILE)'")
 }
 
 # ── Load shared libraries ────────────────────────────────────────────────────
@@ -58,14 +60,21 @@ if (Test-Path $_libDir) {
     }
 }
 
-# ── Load packages (core + active profile, alphabetical) ──────────────────────
-$_pkgDirs = @((Join-Path $env:DOTFILES_ROOT 'pwsh\packages\core'))
-if ($env:DOTFILES_PROFILE -ne 'core') {
-    $_profileDir = Join-Path $env:DOTFILES_ROOT "pwsh\packages\$env:DOTFILES_PROFILE"
-    if (Test-Path $_profileDir) {
-        $_pkgDirs += $_profileDir
-    } else {
+# ── Load packages cumulatively (each profile is a strict superset) ──────────
+# core    → core/
+# server  → core/ + server/
+# develop → core/ + server/ + develop/
+$_pkgsRoot = Join-Path $env:DOTFILES_ROOT 'pwsh\packages'
+switch ($env:DOTFILES_PROFILE) {
+    'core'    { $_pkgDirs = @((Join-Path $_pkgsRoot 'core')) }
+    'server'  { $_pkgDirs = @((Join-Path $_pkgsRoot 'core'),
+                               (Join-Path $_pkgsRoot 'server')) }
+    'develop' { $_pkgDirs = @((Join-Path $_pkgsRoot 'core'),
+                               (Join-Path $_pkgsRoot 'server'),
+                               (Join-Path $_pkgsRoot 'develop')) }
+    default   {
         [Console]::Error.WriteLine("[dotfiles] Unknown profile '$env:DOTFILES_PROFILE' — defaulting to core")
+        $_pkgDirs = @((Join-Path $_pkgsRoot 'core'))
     }
 }
 
@@ -88,4 +97,4 @@ if (-not (_IsQuiet) -and [Environment]::UserInteractive) {
     }
 }
 
-Remove-Variable -Name _libDir, _pkgDirs, _profileDir, _dir, _pkgFile, _f, _fetchHead, _ageDays -ErrorAction SilentlyContinue
+Remove-Variable -Name _libDir, _pkgDirs, _pkgsRoot, _dir, _pkgFile, _f, _fetchHead, _ageDays, _legacyAliases, _oldProfile -ErrorAction SilentlyContinue

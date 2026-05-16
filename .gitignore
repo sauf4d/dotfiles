@@ -45,9 +45,12 @@ logs/
 
 zshenv
 
-# mise project-local config — the canonical manifest lives at
-# config/mise/config.toml. mise auto-creates a root-level mise.toml when
-# `mise use` runs from the repo dir; ignore so it can't be tracked.
+# mise project-local + per-machine state — never tracked.
+# Synced manifest lives at config/mise/conf.d/*.toml (per-tier shards).
+# Each machine's ~/.config/mise/config.toml is local (mise use -g writes
+# go there); the 99-machine.toml overlay in conf.d is also machine-local.
+# A stray config/mise/config.toml can happen if mise misroutes a write —
+# keep it ignored so it can never accidentally enter the repo.
 /mise.toml
 /.mise.toml
 config/mise/config.toml

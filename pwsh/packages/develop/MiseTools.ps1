@@ -1,11 +1,11 @@
 # =============================================================================
-# pwsh/packages/dev/01-MiseTools.ps1 — mirror of zsh/packages/dev/01-mise-tools.zsh.
+# pwsh/packages/develop/MiseTools.ps1 — mirror of zsh/packages/develop/mise-tools.zsh.
 #
 # Consolidated shell integration for mise-managed CLI tools (bat, eza, fd,
 # fzf, jq, ripgrep, zoxide). Each block is gated on Get-Command so a tool
 # missing from PATH silently no-ops instead of erroring.
 #
-# Doctor reporting for these tools is handled by 00-Mise.ps1's
+# Doctor reporting for these tools is handled by core/Mise.ps1's
 # Test-DotfilesMiseHealth, which walks `mise current` and reports source.
 #
 # This file does NOT call Initialize-Package — it's shell config, not a

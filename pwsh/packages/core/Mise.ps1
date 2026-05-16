@@ -1,12 +1,14 @@
 # =============================================================================
-# pwsh/packages/dev/00-Mise.ps1 — mirror of zsh/packages/dev/00-mise.zsh.
+# pwsh/packages/core/Mise.ps1 — mirror of zsh/packages/core/mise.zsh.
 #
 # Lifecycle package: installs mise (via scoop), activates PATH on shell
 # start, and on `dotfiles install` runs `mise install --yes` against the
-# shared manifest config/mise/config.toml.
+# tools declared in ~/.config/mise/conf.d/*.toml (synced shards plus the
+# machine-local 99-machine.toml overlay).
 #
-# Load order: 00- prefix forces this to run before 01-MiseTools.ps1 so
-# every downstream tool finds mise-managed binaries on PATH.
+# Lives in core/ — every profile gets mise. The cumulative profile loader
+# (core → server → develop) guarantees this file runs before MiseTools.ps1
+# in develop/, so by the time the alias gates fire mise's PATH is active.
 # =============================================================================
 
 $script:DotfilesMiseLoaded = $false

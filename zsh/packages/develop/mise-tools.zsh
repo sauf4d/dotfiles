@@ -1,6 +1,6 @@
 #!/usr/bin/env zsh
 
-# 01-mise-tools — consolidated shell integration for mise-managed CLI tools.
+# mise-tools — consolidated shell integration for mise-managed CLI tools.
 #
 # These tools (bat, eza, fd, fzf, jq, rg, zoxide) used to each have their own
 # package file in the 8-hook contract. After moving install/uninstall to

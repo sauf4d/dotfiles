@@ -142,7 +142,8 @@ is_quiet() {
 # `core` is always implicit. Any other profile is valid iff
 # $DOTFILES_ROOT/zsh/packages/<name>/ exists.
 # Legacy aliases (NFR-D — kept for at least one major version):
-#   `minimal` → `core`, `full` → `dev`. Migrated by set_defaults.
+#   `minimal` → `core`, `full` → `develop`, `dev` → `develop`.
+# Migrated by set_defaults on next CLI invocation.
 # -----------------------------------------------------------------------------
 
 # List valid profile names (one per line).
@@ -160,13 +161,27 @@ list_valid_profiles() {
 }
 
 # Echo the package directories that belong to a given profile, in load order.
-# `core` is always first. Unknown profile → just core (caller validates).
+# Cumulative: server includes core; develop includes server+core.
 dotfiles_profile_dirs() {
     local profile="$1"
     local pkgs_root="$DOTFILES_ROOT/zsh/packages"
-    echo "$pkgs_root/core"
-    [[ "$profile" == "core" ]] && return 0
-    [[ -d "$pkgs_root/$profile" ]] && echo "$pkgs_root/$profile"
+    case "$profile" in
+        minimal|core)
+            echo "$pkgs_root/core"
+            ;;
+        server)
+            echo "$pkgs_root/core"
+            [[ -d "$pkgs_root/server" ]] && echo "$pkgs_root/server"
+            ;;
+        full|dev|develop)
+            echo "$pkgs_root/core"
+            [[ -d "$pkgs_root/server" ]] && echo "$pkgs_root/server"
+            [[ -d "$pkgs_root/develop" ]] && echo "$pkgs_root/develop"
+            ;;
+        *)
+            echo "$pkgs_root/core"
+            ;;
+    esac
 }
 
 # Validate profile value (returns 0 if valid, 1 if invalid).
@@ -230,13 +245,14 @@ set_defaults() {
 
     # One-time profile-name migration (legacy → new). save_config persists.
     # NFR-D: legacy aliases keep working for at least one major version.
-    #   minimal  → core   (old "thin" profile renamed)
-    #   full     → dev    (full split into server/dev; full now points to dev)
-    # NOTE: `server` is now a REAL (empty) profile — not a legacy alias.
+    #   minimal  → core    (old "thin" profile renamed)
+    #   full     → develop (full split into server/develop; full now points to develop)
+    #   dev      → develop (renamed for clarity: develop > server > core supersets)
     local _migrated_profile=""
     case "${DOTFILES_PROFILE:-}" in
         minimal) _migrated_profile="core" ;;
-        full)    _migrated_profile="dev" ;;
+        full)    _migrated_profile="develop" ;;
+        dev)     _migrated_profile="develop" ;;
     esac
     if [[ -n "$_migrated_profile" ]]; then
         _dotfiles_log_warning "DOTFILES_PROFILE '${DOTFILES_PROFILE}' migrated to '${_migrated_profile}' — saved to ${CONFIG_FILE}"
@@ -524,6 +540,8 @@ readonly EXCLUDE_PATTERNS=(
     "README.md" "CLAUDE.md" "ARCHITECT.md" "Makefile"
     ".gitignore" "install" "bin" "config"
     "zsh" "docs" "zshenv" ".vscode" ".git" "*.zwc" "*.zwc.old"
+    "tmux.conf"  # tmux config is linked conditionally — see _dotfiles_tmux_link_config
+    "pwsh"       # pwsh tree never lands in $HOME on Unix
 )
 
 should_exclude() {
@@ -616,6 +634,64 @@ link_directory_files() {
     [[ $failed_count -gt 0 ]] && _dotfiles_log_warning "Failed to link $failed_count files"
 }
 
+# =============================================================================
+# tmux setup — optional, machine-base. tmux is no longer in the core package
+# set; it's installed only when the user opts in via:
+#     dotfiles config set extra tmux
+# (which lands in ~/.config/mise/conf.d/99-machine.toml). The functions below
+# manage the *config + TPM* side of tmux and only fire when the binary is
+# actually present, so the CLI is silent on machines that don't use tmux.
+# =============================================================================
+
+_dotfiles_tmux_link_config() {
+    command -v tmux &>/dev/null || return 0
+    [[ -f "$DOTFILES_ROOT/tmux.conf" ]] || return 0
+    create_single_symlink "$DOTFILES_ROOT/tmux.conf" "$HOME/.tmux.conf" "tmux.conf"
+
+    # Install TPM (tmux plugin manager) at a pinned tag. Plain git clone is
+    # acceptable here — the repo is trusted and the tag is immutable.
+    local tpm_dir="$HOME/.tmux/plugins/tpm"
+    if [[ ! -d "$tpm_dir" ]] && command -v git &>/dev/null; then
+        _dotfiles_log_info "Installing tmux plugin manager (v3.1.0)..."
+        if git clone --depth=1 --branch v3.1.0 \
+            https://github.com/tmux-plugins/tpm "$tpm_dir" >/dev/null 2>&1; then
+            _dotfiles_log_success "TPM installed"
+            local tpm_install_script="$tpm_dir/bindings/install_plugins"
+            [[ -x "$tpm_install_script" ]] && "$tpm_install_script" &>/dev/null
+        else
+            _dotfiles_log_warning "TPM clone failed — install manually if needed"
+        fi
+    fi
+}
+
+_dotfiles_tmux_doctor() {
+    command -v tmux &>/dev/null || return 0  # silent skip when tmux absent
+    local ver conf_target
+    ver="$(tmux -V 2>/dev/null)"
+    _dotfiles_log_result "tmux" "${ver:-installed}"
+    conf_target="$(readlink -f "$HOME/.tmux.conf" 2>/dev/null || true)"
+    if [[ -f "$HOME/.tmux.conf" ]]; then
+        _dotfiles_log_dim "config: ~/.tmux.conf${conf_target:+ -> $conf_target}"
+    else
+        _dotfiles_log_dim "config: ~/.tmux.conf missing — run: dotfiles link"
+    fi
+    [[ -d "$HOME/.tmux/plugins/tpm" ]] \
+        && _dotfiles_log_dim "TPM: ~/.tmux/plugins/tpm" \
+        || _dotfiles_log_dim "TPM: not installed"
+}
+
+_dotfiles_tmux_uninstall() {
+    # Always run — symlink + TPM should be removed even if the tmux binary
+    # has already been uninstalled by mise.
+    local conf="$HOME/.tmux.conf"
+    if [[ -L "$conf" ]]; then
+        local target
+        target="$(readlink "$conf" 2>/dev/null || true)"
+        [[ "$target" == "${DOTFILES_ROOT:-$HOME/.dotfiles}"* ]] && rm -f "$conf" 2>/dev/null
+    fi
+    rm -rf "$HOME/.tmux/plugins" 2>/dev/null
+}
+
 create_symlinks() {
     _dotfiles_log_step "Creating symlinks..."
     show_section "Symlinks"
@@ -655,16 +731,45 @@ create_symlinks() {
         unset _mise_link_target
     fi
 
-    # Link mise shared shards file-by-file into ~/.config/mise/conf.d/. Leaves
-    # ~/.config/mise/config.toml alone — that's mise's machine-local scratch
-    # where `mise use -g` writes go. Pre-create that file as a non-symlink
-    # placeholder: without it, mise's `use -g` falls back to writing into the
-    # alphabetically-first conf.d file (which IS a symlink to the repo) and
-    # silently leaks per-machine declarations into the synced manifest.
+    # Link mise shared shards file-by-file into ~/.config/mise/conf.d/. The
+    # set of shards we link depends on the active profile (strict superset):
+    #   core    → no shards (sheldon + mise only)
+    #   server  → 00-server.toml
+    #   develop → 00-server.toml + 10-develop.toml
+    # ~/.config/mise/config.toml is left as a real machine-local file — that's
+    # where `mise use -g` writes go. Pre-create it as a placeholder; without
+    # it, mise falls back to writing into the alphabetically-first conf.d file
+    # (which IS a symlink to the repo) and silently leaks per-machine
+    # declarations into the synced manifest.
     if [[ -d "$DOTFILES_ROOT/config/mise/conf.d" ]]; then
         mkdir -p "$HOME/.config/mise/conf.d"
-        link_directory_files "$DOTFILES_ROOT/config/mise/conf.d" \
-            "$HOME/.config/mise/conf.d/" "Linking mise conf.d shards..."
+
+        # 1. Remove any stale repo-targeted symlinks so switching profiles
+        #    (or repo renames like 00-common.toml → 00-server.toml) doesn't
+        #    leave dangling links pointing at vanished files.
+        local _l _t
+        for _l in "$HOME/.config/mise/conf.d"/*.toml; do
+            [[ -e "$_l" || -L "$_l" ]] || continue   # bash no-match guard
+            [[ -L "$_l" ]] || continue
+            _t="$(readlink "$_l" 2>/dev/null || true)"
+            [[ "$_t" == "$DOTFILES_ROOT/config/mise/conf.d/"* ]] && rm -f "$_l"
+        done
+
+        # 2. Determine which shards the active profile wants.
+        local -a _wanted_shards=()
+        case "${DOTFILES_PROFILE:-core}" in
+            server)              _wanted_shards=("00-server.toml") ;;
+            full|dev|develop)    _wanted_shards=("00-server.toml" "10-develop.toml") ;;
+            *)                   _wanted_shards=() ;;  # core or unknown: link none
+        esac
+
+        # 3. Link only the shards that exist in the repo and match the profile.
+        local _s _src
+        for _s in "${_wanted_shards[@]}"; do
+            _src="$DOTFILES_ROOT/config/mise/conf.d/$_s"
+            [[ -f "$_src" ]] || continue
+            create_single_symlink "$_src" "$HOME/.config/mise/conf.d/$_s" "$_s"
+        done
     fi
     if [[ ! -e "$HOME/.config/mise/config.toml" ]]; then
         mkdir -p "$HOME/.config/mise"
@@ -674,6 +779,9 @@ create_symlinks() {
 # Shared declarations live in ~/.config/mise/conf.d/*.toml (symlinks to the repo).
 EOF
     fi
+
+    # tmux config + TPM — only when tmux is installed on this machine.
+    _dotfiles_tmux_link_config
 }
 
 # Check symlinks in a directory
@@ -917,7 +1025,7 @@ USAGE:
   dotfiles config keys               List valid keys (one per line)
 
 KEYS:
-  profile   core | server | dev
+  profile   core | server | develop
   verbose   true | false
   exclude   comma-separated tools to drop from the active profile
   extra     comma-separated tools to add on top of the active profile
@@ -925,10 +1033,12 @@ KEYS:
 
 EXAMPLES:
   dotfiles config set verbose true
-  dotfiles config set profile dev
+  dotfiles config set profile develop
   dotfiles config set exclude eza,bat       # skip these on this machine
   dotfiles config set extra htop,starship   # add these on this machine
+  dotfiles config set extra tmux            # opt-in tmux on this machine
   dotfiles config get profile               # prints to stdout (machine-readable)
+  dotfiles config edit                      # open managed block in \$EDITOR
 EOF
 }
 
@@ -1581,10 +1691,15 @@ uninstall_dotfiles() {
     # 3. Remove symlinks (preserves CONFIG_EXCLUDE handling)
     local unlink_count=0
     remove_symlinks_from_dir "$DOTFILES_ROOT" "$HOME/." unlink_count
-    DOTFILES_CONFIG_EXCLUDE="claude" \
+    DOTFILES_CONFIG_EXCLUDE="claude:mise" \
         remove_symlinks_from_dir "$DOTFILES_ROOT/config" "$HOME/.config/" unlink_count
     [[ -d "$DOTFILES_ROOT/config/claude" ]] && \
         remove_symlinks_from_dir "$DOTFILES_ROOT/config/claude" "$HOME/.claude/" unlink_count
+    [[ -d "$DOTFILES_ROOT/config/mise/conf.d" ]] && \
+        remove_symlinks_from_dir "$DOTFILES_ROOT/config/mise/conf.d" "$HOME/.config/mise/conf.d/" unlink_count
+
+    # 3b. tmux: remove ~/.tmux.conf symlink + TPM, regardless of tmux presence
+    _dotfiles_tmux_uninstall
 
     # 4. Remove DOTFILES_* exports from zshenv
     [[ -f "$CONFIG_FILE" ]] && {
@@ -1951,6 +2066,12 @@ doctor_dotfiles() {
             *) _dotfiles_log_warning "$pkg_name: doctor returned $rc"; ((issues+=rc)) ;;
         esac
     done < <(_iter_profile_packages)
+
+    # 6. tmux — silent skip when not installed (machine-optional)
+    if command -v tmux &>/dev/null; then
+        _dotfiles_log_step "Checking tmux"
+        _dotfiles_tmux_doctor
+    fi
 
     echo
     if [[ $issues -eq 0 ]]; then
@@ -2375,6 +2496,7 @@ show_usage() {
     _help_cmd "sync"      "s"  "update + install in one step"
     _help_cmd "status"    "st" "Snapshot of profile, git, symlinks, packages"
     _help_cmd "config"    ""   "get/set/list/edit/path/keys configuration"
+    _help_cmd "profile"   "p"  "list | <name> — show or set the active profile"
     _help_cmd "doctor"    "d"  "Read-only health check (badge grid + detail)"
     _help_cmd "clean"     "c"  "Remove orphaned symlinks (dry-run default)"
     _help_cmd "claude-clean" "" "Strip session-volatile keys from claude settings.json"
@@ -2396,12 +2518,14 @@ show_usage() {
     echo
 
     printf '%bEXAMPLES%b\n' "$BOLD$CYAN" "$RESET"
-    _help_ex "dotfiles"                          "Open the interactive menu"
-    _help_ex "dotfiles install"                  "Symlinks + packages (no git)"
-    _help_ex "dotfiles update --stash"           "Pull latest, auto-stash local changes"
-    _help_ex "dotfiles status --json | jq ."     "Machine-readable status snapshot"
-    _help_ex "dotfiles config set profile core"  "Switch active profile"
-    _help_ex "dotfiles doctor"                   "Run the health check"
+    _help_ex "dotfiles"                              "Open the interactive menu"
+    _help_ex "dotfiles install"                      "Symlinks + packages (no git)"
+    _help_ex "dotfiles profile list"                 "Show profile contents and active marker"
+    _help_ex "dotfiles config set profile develop"   "Switch active profile"
+    _help_ex "dotfiles config set extra tmux"        "Opt-in tmux on this machine"
+    _help_ex "dotfiles config edit"                  "Open the managed block in \$EDITOR"
+    _help_ex "dotfiles update --stash"               "Pull latest, auto-stash local changes"
+    _help_ex "dotfiles doctor"                       "Run the health check"
     echo
 
     printf '%bONE-LINE INSTALL%b  %b(clean machine)%b\n' "$BOLD$CYAN" "$RESET" "$DIM" "$RESET"
@@ -2578,8 +2702,13 @@ handle_profile_command() {
     local new_profile="$1"
 
     if [[ -z "$new_profile" ]]; then
-        _dotfiles_log_error "Profile name required. Usage: $SCRIPT_NAME profile <core|server|dev>"
+        _dotfiles_log_error "Profile name required. Usage: $SCRIPT_NAME profile <core|server|develop> | list"
         return 1
+    fi
+
+    if [[ "$new_profile" == "list" || "$new_profile" == "ls" ]]; then
+        _profile_list
+        return $?
     fi
 
     if ! validate_profile "$new_profile"; then
@@ -2599,6 +2728,27 @@ handle_profile_command() {
 
     export DOTFILES_PROFILE="$new_profile"
     _dotfiles_log_success "Profile set to ${new_profile}. Run: source ~/.zshrc"
+    return 0
+}
+
+# Print the profile table with the active profile marked.
+_profile_list() {
+    local active="${DOTFILES_PROFILE:-core}"
+    local mark
+    show_section "Profiles"
+    printf '  %-8s  %-32s  %s\n' "NAME" "SHELL-INIT PACKAGES" "MISE SHARDS"
+    printf '  %-8s  %-32s  %s\n' "----" "-------------------" "-----------"
+    for p in core server develop; do
+        mark=" "
+        [[ "$active" == "$p" ]] && mark="→"
+        case "$p" in
+            core)    printf '%s %-8s  %-32s  %s\n' "$mark" "$p" "sheldon, mise" "(none — opt in via 99-machine.toml)" ;;
+            server)  printf '%s %-8s  %-32s  %s\n' "$mark" "$p" "core + (server-tier zsh init)" "core + 00-server.toml" ;;
+            develop) printf '%s %-8s  %-32s  %s\n' "$mark" "$p" "core + server + mise-tools.zsh" "core + 00-server.toml + 10-develop.toml" ;;
+        esac
+    done
+    echo
+    _dotfiles_log_dim "Switch with: dotfiles config set profile <name>"
     return 0
 }
 

@@ -32,7 +32,7 @@ Just shell code at the top level. **Do NOT call `init_package_template`.**
 Every section gated by `command -v <tool>` so missing tools no-op gracefully.
 
 ```zsh
-# zsh/packages/dev/01-mise-tools.zsh — consolidated example
+# zsh/packages/develop/mise-tools.zsh — consolidated example
 if command -v bat &>/dev/null && [[ -z "${MANPAGER:-}" ]]; then
     export MANPAGER="sh -c 'col -bx | bat -l man -p'"
 fi
@@ -84,12 +84,21 @@ terminates the parent shell.
 
 Filesystem-derived: any directory `zsh/packages/<name>/` is a valid
 profile. `DOTFILES_PROFILE` (in `~/.zshenv` managed block) selects one.
-Cumulative — `core/` always loads first, then the named profile.
+**Cumulative — strict superset chain `core ⊆ server ⊆ develop`.** Each
+profile loads its tier's dir plus every lower tier's dir.
 
-Profile names: `core` (always), `server` (thin VPS, currently empty), `dev`
-(full workstation — node/go/python/bun + bat/eza/fd/fzf/jq/rg/zoxide).
-Legacy aliases (NFR-D): `minimal` → `core`, `full` → `dev`. Migrated by
-`set_defaults` on next CLI invocation; warns once and persists the new name.
+| Profile | Shell-init dirs loaded | Mise conf.d shards linked |
+|---|---|---|
+| `core` | `core/` (sheldon, mise) | none — opt-in tools via `99-machine.toml` |
+| `server` | `core/` + `server/` | `00-server.toml` (bat, fd, fzf, jq, ripgrep, zoxide) |
+| `develop` | `core/` + `server/` + `develop/` (mise-tools.zsh) | `00-server.toml` + `10-develop.toml` (node, go, python, bun, pnpm, yarn, biome) |
+
+Per-machine extras (e.g. tmux, aqua-eza) live in `~/.config/mise/conf.d/99-machine.toml`,
+managed via `dotfiles config set extra <tool>`. Not synced via git.
+
+Legacy aliases (NFR-D): `minimal` → `core`, `full` → `develop`, `dev` → `develop`.
+Migrated by `set_defaults` (bash) / `Invoke-Install` (pwsh) on next CLI
+invocation; warns once and persists the new name.
 
 ### Override env vars (per-machine, written to `~/.zshenv` managed block)
 
@@ -182,8 +191,8 @@ patterns.
 | Safe installer helpers | `_dotfiles_safe_run_installer`, `_dotfiles_safe_git_clone`, `_dotfiles_verify_sha256` | — |
 | Internal/private functions | leading underscore: `_dotfiles_<name>` | `_dotfiles_did_you_mean` |
 | Load flag (idempotency, NOT exported) | `_DOTFILES_<TOOL>_LOADED` | `_DOTFILES_MISE_LOADED` |
-| File-prefix for "load first" | `00-<name>.zsh` / `01-<name>.zsh` | `00-mise.zsh` |
-| Filenames | `lowercase-with-dashes.zsh` or `lowercase.zsh` | `01-mise-tools.zsh` |
+| File-prefix for ordering inside one profile dir | `00-`, `10-`, `20-`, …  (only if alphabetical order matters) | `00-options.zsh`, `10-history.zsh` in `zsh/core/` |
+| Filenames | `lowercase-with-dashes.zsh` or `lowercase.zsh` | `mise.zsh`, `mise-tools.zsh`, `sheldon.zsh` |
 | Linter | `shellcheck` for bash + POSIX sh | — |
 
 ### PowerShell (the `pwsh/` tree)
@@ -218,7 +227,7 @@ bash/zsh patterns into pwsh.
 
 ## Common pitfalls (actively guarded in the code)
 
-1. **Load-flag must not be exported.** `00-mise.zsh` sets
+1. **Load-flag must not be exported.** `zsh/packages/core/mise.zsh` sets
    `_DOTFILES_MISE_LOADED="1"` without `export`. If exported, `exec zsh`
    inherits it and skips `mise activate`, leaving PATH without tool shims.
 
@@ -241,19 +250,22 @@ bash/zsh patterns into pwsh.
 5. **`pkg_post_install` re-runs during `dotfiles install`.** Even on
    already-installed packages. Must be idempotent.
 
-6. **Alphabetical load order** in `zsh/packages/<profile>/`. mise must
-   activate before any tool gated on `command -v` checks → use `00-mise.zsh`
-   prefix to force first-load. Sheldon similarly uses load-first ordering
-   in `core/`.
+6. **Cumulative profile load order** — `core/` always runs first, then
+   `server/`, then `develop/` (when each is in the active profile chain).
+   `mise.zsh` lives in `core/` so mise's PATH is active by the time any
+   later package's `command -v` check fires; no numeric prefix needed.
 
 7. **`mise install` only runs when `DOTFILES_INSTALL=true`.** Plain shell
    startup never triggers tool installs — `pkg_init` only activates PATH.
-   Together with `not_found_auto_install = false` in mise.toml, this means
-   shell open is read-only.
+   Together with `not_found_auto_install = false` in `00-server.toml`,
+   this means shell open is read-only.
 
-8. **`config/mise/config.toml` uses bare tool names** (e.g. `jq = "latest"`)
-   via mise's built-in registry. Don't use the deprecated `ubi:` backend —
-   use bare names or `github:owner/repo` for explicit pinning.
+8. **Sharded mise manifest** (`config/mise/conf.d/*.toml`) uses bare tool
+   names via mise's built-in registry. Don't use the deprecated `ubi:`
+   backend — bare names or `github:owner/repo` / `aqua:owner/repo` for
+   explicit pinning. The active profile determines which shards get
+   symlinked into `~/.config/mise/conf.d/`; `~/.config/mise/config.toml`
+   stays a real machine-local file where `mise use -g` writes go.
 
 9. **`/etc/nanorc` loads before `~/.nanorc`** — the repo's nanorc file
    intentionally omits syntax `include` lines; the system loader registers
@@ -272,8 +284,8 @@ Tools that need shell integration ship two files: one for each shell.
 Naming and location mirror exactly:
 
 ```
-zsh/packages/dev/starship.zsh    eval "$(starship init zsh)"
-pwsh/packages/dev/starship.ps1   Invoke-Expression (&starship init powershell | Out-String)
+zsh/packages/develop/starship.zsh    eval "$(starship init zsh)"
+pwsh/packages/develop/Starship.ps1   Invoke-Expression (&starship init powershell | Out-String)
 ```
 
 **Skip the pwsh file** if you don't run the tool on Windows. The bootstrap
@@ -286,11 +298,17 @@ translator that breaks on non-trivial snippets.
 
 ## When you add a new tool
 
-1. Add the binary to `config/mise/config.toml`: `<tool> = "latest"`.
+1. Pick the right shard in `config/mise/conf.d/`:
+   - **Universal CLI util** → `00-server.toml` (every server + develop machine gets it).
+   - **Language toolchain or develop-only** → `10-develop.toml`.
+   - **Per-machine only** → don't edit the repo; run `dotfiles config set extra <tool>`
+     which writes the machine-local `~/.config/mise/conf.d/99-machine.toml`.
 2. (If shell integration needed) create `zsh/packages/<profile>/<tool>.zsh`
-   with `command -v <tool> && <init>`-style code.
+   with `command -v <tool> && <init>`-style code. Use `core/` if every
+   machine needs it; `server/` for CLI utilities; `develop/` for
+   workstation-only tools.
 3. (If Windows parity needed) create the matching
-   `pwsh/packages/<profile>/<tool>.ps1`.
+   `pwsh/packages/<profile>/<Tool>.ps1`.
 4. Run `dotfiles install` to verify mise installs it and shell integration
    works.
 5. (If lifecycle hooks needed — install/uninstall logic mise can't express)

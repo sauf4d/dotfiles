@@ -1,9 +1,9 @@
 #!/usr/bin/env zsh
 
-# 00- prefix forces alphabetical first-load. Every other tool in this
-# profile (bat, eza, fd, fzf, jq, ripgrep, zoxide) is installed AND made
-# discoverable by mise — they need mise's PATH active before their own
-# `command -v` checks run. Don't rename this file.
+# Lives in core/ — every profile gets mise. The cumulative profile loader
+# (core → server → develop) guarantees this file runs before any package
+# in server/ or develop/, so by the time those `command -v <tool>` checks
+# fire, mise's PATH is already active.
 
 PKG_NAME="mise"
 PKG_DESC="Polyglot tool & SDK version manager (replaces vfox + per-tool apt/brew)"

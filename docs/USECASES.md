@@ -65,7 +65,7 @@ iwr -useb https://tinyurl.com/get-dotfiles-win | iex
    manager. (Optional: `scoop install pwsh` if user is still on Windows
    PowerShell 5.1 and needs PowerShell 7+.)
 3. Repo cloned to `$HOME\.dotfiles`.
-4. **`mise install`** reads `config/mise/config.toml` and pulls all
+4. **`mise install`** reads `config/mise/conf.d/*.toml` and pulls all
    tools — the github: backend ships native Windows binaries for every
    tool in the manifest.
 5. **`make link`** runs in Git Bash (installed alongside git), symlinks
@@ -93,7 +93,7 @@ bindings — only the shell language differs.
 profile but drop eza and add htop."
 **They do**:
 ```bash
-curl -fsSL https://tinyurl.com/get-dotfiles | bash -s -- --profile=dev --exclude=eza --extra=htop
+curl -fsSL https://tinyurl.com/get-dotfiles | bash -s -- --profile=develop --exclude=eza --extra=htop
 ```
 Or after install: `dotfiles config set exclude eza` and rerun
 `dotfiles install`.
@@ -138,7 +138,7 @@ in CI / non-TTY / `--quiet`.
 > The menu was previously default-on; that proved noisy for daily use. Now
 > it's an explicit opt-in so re-running install doesn't re-prompt every time.
 >
-> Flag form (`--profile=dev --exclude=eza --extra=htop`) is ALWAYS
+> Flag form (`--profile=develop --exclude=eza --extra=htop`) is ALWAYS
 > respected when present and skips the menu regardless.
 
 ---
@@ -149,7 +149,7 @@ in CI / non-TTY / `--quiet`.
 
 **Who/when**: Decides they need `htop` after install.
 **They want**: One-line add, propagates to other machines via the repo.
-**They do**: edit `config/mise/config.toml`, add `htop = "latest"`, then
+**They do**: edit `config/mise/conf.d/*.toml`, add `htop = "latest"`, then
 `dotfiles install`.
 **They get**: htop installed. Commit + push the change; other machines
 pick it up via UC-9.
@@ -161,7 +161,7 @@ on Unix and `Invoke-Expression (&starship init powershell | Out-String)`
 on Windows.
 **They want**: Same one-liner add, hooks set up on every shell.
 **They do**:
-1. Edit `config/mise/config.toml`, add `starship = "latest"`.
+1. Edit `config/mise/conf.d/*.toml`, add `starship = "latest"`.
 2. Add `zsh/packages/<group>/starship.zsh` — just a `command -v starship
    && eval $(starship init zsh)`. No lifecycle hooks needed.
 3. Add the pwsh mirror `pwsh/packages/<group>/starship.ps1` — same idea
@@ -196,7 +196,7 @@ preserves any user content around it.
 
 **Who/when**: Reproducibility need — every machine must run node 22.0.0.
 **They want**: Edit one place, all machines align.
-**They do**: in `config/mise/config.toml`, change `node = "latest"` to
+**They do**: in `config/mise/conf.d/*.toml`, change `node = "latest"` to
 `node = "22.0.0"`. Commit. Run `dotfiles install` on each machine (or
 let UC-9 handle it).
 **They get**: All machines converge on the pinned version.
@@ -272,7 +272,7 @@ code = number of issues.
 
 **Who/when**: Decided `bun` isn't worth keeping.
 **They want**: Clean removal — binary, config, shell integration.
-**They do**: remove `bun = "latest"` from `config/mise/config.toml`,
+**They do**: remove `bun = "latest"` from `config/mise/conf.d/*.toml`,
 commit, run `dotfiles install` (mise removes the orphaned tool) and
 `dotfiles clean --force` (sweeps any leftover symlinks).
 **They get**: Tool gone. No dead aliases, no stale config dirs.
@@ -281,9 +281,9 @@ commit, run `dotfiles install` (mise removes the orphaned tool) and
 
 **Who/when**: VPS that was server-only now needs dev tools temporarily.
 **They want**: Promote in place — no reinstall from scratch.
-**They do**: `dotfiles config set profile dev && dotfiles install`.
+**They do**: `dotfiles config set profile develop && dotfiles install`.
 **They get**: The dev group's tools install on top of what was already
-there. Reverse (`profile server`) leaves dev tools in place until they
+there. Reverse (`profile server`) leaves develop tools in place until they
 run `dotfiles install --reconcile` (explicit prune).
 
 ### UC-15: Full uninstall

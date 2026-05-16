@@ -4,8 +4,8 @@ One shell config that travels across macOS, Linux, and Windows. Each
 machine installs only the tools it actually needs. One command sets up
 a fresh box; one command keeps existing boxes in sync.
 
-- **Tools managed by mise** — same versions on every machine via one
-  `config/mise/config.toml`.
+- **Tools managed by mise** — same versions on every machine via
+  per-tier shards under `config/mise/conf.d/`.
 - **Configs synced via symlinks** — edit a file in the repo, every
   machine that pulls the commit picks it up immediately.
 - **Per-machine overrides** — pick a profile, exclude tools you don't
@@ -37,21 +37,21 @@ curl -fsSL https://tinyurl.com/get-dotfiles | bash -s -- --menu
 
 ```bash
 # Full dev workstation, default tools
-curl -fsSL https://tinyurl.com/get-dotfiles | bash -s -- --profile=dev
+curl -fsSL https://tinyurl.com/get-dotfiles | bash -s -- --profile=develop
 
 # Thin server, no language SDKs
 curl -fsSL https://tinyurl.com/get-dotfiles | bash -s -- --profile=server
 
-# Custom: dev profile minus eza, plus htop and starship
+# Custom: develop profile minus a tool, plus extras
 curl -fsSL https://tinyurl.com/get-dotfiles | bash -s -- \
-  --profile=dev --exclude=eza --extra=htop,starship
+  --profile=develop --exclude=jq --extra=htop,starship
 ```
 
 Or clone manually and run:
 
 ```bash
 git clone https://github.com/ved0el/dotfiles.git ~/.dotfiles
-~/.dotfiles/bin/dotfiles install --profile=dev
+~/.dotfiles/bin/dotfiles install --profile=develop
 ```
 
 ### Windows
@@ -88,23 +88,34 @@ $HOME\.dotfiles\bin\dotfiles.ps1 install
 
 ## Profiles
 
-A profile picks a baseline set of tools. Today three are defined:
+Profiles are a **strict superset chain** — each tier includes everything from
+the tier below. Pick the most thorough one your machine needs.
 
-| Profile | Includes | Best for |
-|---|---|---|
-| `core` | sheldon (zsh plugins), tmux, mise itself | Minimum bootstrap — almost never used directly |
-| `server` | Same as core | Thin VPS where you don't need language SDKs |
-| `dev` | core + node/go/python/bun + bat/eza/fd/fzf/jq/rg/zoxide | Full dev workstation |
+| Profile | Shell-init packages | Mise tools (synced shards) | Best for |
+|---|---|---|---|
+| `core` | sheldon, mise | none — opt-in via `99-machine.toml` | Minimal bootstrap |
+| `server` | core + (server-tier zsh init) | core + `00-server.toml` (bat, fd, fzf, jq, ripgrep, zoxide) | Thin VPS / SSH host |
+| `develop` | core + server + `mise-tools.zsh` (CLI tool aliases) | core + `00-server.toml` + `10-develop.toml` (node, go, python, bun, pnpm, yarn, biome) | Full dev workstation |
 
-Profiles are filesystem-derived — any directory under `zsh/packages/<name>/`
-is a valid profile. Make a new one by creating that directory.
+Per-machine extras (tmux, eza, anything outside the synced shards) go
+into `~/.config/mise/conf.d/99-machine.toml` — write it via
+`dotfiles config set extra <tool>`, not by hand.
 
-Set the active profile:
+See what's active:
 
 ```bash
-dotfiles config set profile dev   # or server, or core
-dotfiles install                   # apply
+dotfiles profile list      # table with → pointing at the active profile
 ```
+
+Switch:
+
+```bash
+dotfiles config set profile develop   # or server, or core
+dotfiles install                       # apply
+```
+
+Legacy names (`minimal`, `full`, `dev`) auto-migrate to (`core`,
+`develop`, `develop`) on next install.
 
 ### Per-machine tool overrides
 
@@ -161,7 +172,7 @@ Three steps after editing the repo on machine A:
 ```bash
 # Machine A — push your change
 cd ~/.dotfiles
-git add config/mise/config.toml zsh/packages/dev/starship.zsh
+git add config/mise/conf.d/10-develop.toml zsh/packages/develop/starship.zsh
 git commit -m "feat: add starship"
 git push
 
@@ -184,18 +195,21 @@ Three cases:
 
 **Case A — just a binary you'll call directly** (htop, dust, dog):
 
-1. Edit `config/mise/config.toml`, add `htop = "latest"`.
+1. Edit the right shard — `config/mise/conf.d/00-server.toml` if every
+   server+develop machine should get it, or `10-develop.toml` for
+   develop-only tools. Add `htop = "latest"`.
 2. `dotfiles install`.
 3. Commit + push.
 
 **Case B — binary + shell integration** (starship, atuin, direnv):
 
-1. Edit `config/mise/config.toml`, add `starship = "latest"`.
-2. Create `zsh/packages/dev/starship.zsh`:
+1. Add the entry to `config/mise/conf.d/10-develop.toml` (or the
+   appropriate tier).
+2. Create `zsh/packages/develop/starship.zsh`:
    ```zsh
    command -v starship &>/dev/null && eval "$(starship init zsh)"
    ```
-3. (Windows parity) Create `pwsh/packages/dev/starship.ps1`:
+3. (Windows parity) Create `pwsh/packages/develop/Starship.ps1`:
    ```powershell
    if (Get-Command starship -EA SilentlyContinue) {
        Invoke-Expression (&starship init powershell | Out-String)

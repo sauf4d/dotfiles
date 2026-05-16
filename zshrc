@@ -22,24 +22,29 @@ unset _f
 source "$DOTFILES_ROOT/zsh/lib/platform.zsh"
 source "$DOTFILES_ROOT/zsh/lib/installer.zsh"
 
-# Load packages for active profile (cumulative: core ⊆ <profile>).
-# Profile dirs are derived from the filesystem: $DOTFILES_ROOT/zsh/packages/<name>/
+# Load packages cumulatively: each profile is a strict superset of the
+# previous tier.
+#   core    → core/
+#   server  → core/ + server/
+#   develop → core/ + server/ + develop/
 # Legacy aliases (NFR-D — kept for at least one major version):
-#   `minimal` → core, `full` → dev (one-shot migrated by bin/dotfiles'
-#   set_defaults on next `dotfiles install`). `server` is now a REAL profile.
+#   minimal → core, full → develop, dev → develop. One-shot migrated by
+#   bin/dotfiles' set_defaults on next `dotfiles install`.
 typeset -a _pkg_dirs
-_pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core")
-if [[ "${DOTFILES_PROFILE}" != "core" && "${DOTFILES_PROFILE}" != "minimal" ]]; then
-    _profile="${DOTFILES_PROFILE}"
-    [[ "$_profile" == "full" ]] && _profile="dev"  # legacy alias
-    if [[ -d "$DOTFILES_ROOT/zsh/packages/$_profile" ]]; then
-        _pkg_dirs+=("$DOTFILES_ROOT/zsh/packages/$_profile")
-    else
+case "${DOTFILES_PROFILE}" in
+    minimal|core)  _pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core") ;;
+    server)        _pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core"
+                              "$DOTFILES_ROOT/zsh/packages/server") ;;
+    full|dev|develop)
+                   _pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core"
+                              "$DOTFILES_ROOT/zsh/packages/server"
+                              "$DOTFILES_ROOT/zsh/packages/develop") ;;
+    *)
         echo "[dotfiles] Unknown profile '${DOTFILES_PROFILE}' — defaulting to core. Run: dotfiles config set profile <name>" >&2
-    fi
-    unset _profile
-fi
+        _pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core") ;;
+esac
 for _pkg_dir in "$_pkg_dirs[@]"; do
+    [[ -d "$_pkg_dir" ]] || continue
     for _pkg_file in "$_pkg_dir"/*.zsh(N); do source "$_pkg_file"; done
 done
 unset _pkg_dirs _pkg_dir _pkg_file

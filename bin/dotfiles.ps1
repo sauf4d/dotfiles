@@ -58,7 +58,16 @@ if (Test-Path $LibDir) {
 $ConfigFile = if ($PROFILE.CurrentUserAllHosts) { $PROFILE.CurrentUserAllHosts } else { $PROFILE }
 $ManagedBegin = '# DOTFILES MANAGED BEGIN — do not edit between markers; use `dotfiles config set`'
 $ManagedEnd   = '# DOTFILES MANAGED END'
-$ValidProfiles = @('core', 'server', 'dev')
+$ValidProfiles = @('core', 'server', 'develop')
+
+# Legacy aliases honored at install time (mirrors bin/dotfiles set_defaults).
+# Kept for at least one major version per NFR-D so existing $PROFILE blocks
+# auto-migrate on next `dotfiles install`.
+$LegacyProfileAliases = @{
+    minimal = 'core'     # old "thin" profile renamed
+    full    = 'develop'  # full split into server/develop; full now points to develop
+    dev     = 'develop'  # renamed for clarity (develop > server > core supersets)
+}
 
 # config/* dirs to NOT dir-symlink. Each name listed here is either special-
 # cased (file-by-file symlinks elsewhere) or platform-specific and skipped on
@@ -184,6 +193,14 @@ function Test-DotfilesFirstInstall {
 
 # ── Subcommands ──────────────────────────────────────────────────────────────
 function Invoke-Install {
+    # Migrate legacy profile names BEFORE logging the profile so the printed
+    # value reflects the post-migration name.
+    if ($env:DOTFILES_PROFILE -and $LegacyProfileAliases.ContainsKey($env:DOTFILES_PROFILE)) {
+        $oldProfile = $env:DOTFILES_PROFILE
+        $env:DOTFILES_PROFILE = $LegacyProfileAliases[$oldProfile]
+        Write-DotfilesWarning "DOTFILES_PROFILE '$oldProfile' migrated to '$($env:DOTFILES_PROFILE)' — Save-DotfilesConfig will persist"
+    }
+
     Write-DotfilesStep "Installing dotfiles (profile=$($env:DOTFILES_PROFILE ?? 'core'))"
     $env:DOTFILES_INSTALL = 'true'
 
@@ -306,7 +323,17 @@ function Invoke-ConfigCommand {
             Save-DotfilesConfig
             Write-DotfilesSummary "$key = $value"
         }
-        'edit'    { & $env:EDITOR $ConfigFile }
+        'edit'    {
+            # Fallback chain: $EDITOR → git core.editor → notepad. Without
+            # this, `dotfiles config edit` on a stock Windows shell where
+            # $env:EDITOR is unset would invoke an empty command and fail.
+            $editor = $env:EDITOR
+            if (-not $editor) {
+                $editor = (& git config --global --get core.editor 2>$null)
+            }
+            if (-not $editor) { $editor = 'notepad' }
+            & $editor $ConfigFile
+        }
         'path'    { Write-Output $ConfigFile }
         'keys'    { 'profile','verbose','exclude','extra' | ForEach-Object { Write-Output $_ } }
         default   { Write-DotfilesError "Unknown action: $action"; return 1 }
@@ -380,6 +407,32 @@ function Invoke-ClaudeClean {
         Write-DotfilesDetail 'Pass --force to apply.'
     }
     return 0
+}
+
+function Invoke-ProfileCommand {
+    param([string[]]$Arguments)
+    $sub = if ($Arguments.Count -gt 0) { $Arguments[0] } else { 'list' }
+    switch ($sub) {
+        { $_ -in 'list','ls','' } {
+            $active = if ($env:DOTFILES_PROFILE) { $env:DOTFILES_PROFILE } else { 'core' }
+            Write-DotfilesStep 'Profiles'
+            $rows = @(
+                @{ name='core';    pkgs='Sheldon, Mise';                    shards='(none — opt in via 99-machine.toml)' }
+                @{ name='server';  pkgs='core + (server-tier pwsh init)';   shards='core + 00-server.toml' }
+                @{ name='develop'; pkgs='core + server + MiseTools.ps1';    shards='core + 00-server.toml + 10-develop.toml' }
+            )
+            foreach ($r in $rows) {
+                $mark = if ($r.name -eq $active) { '→' } else { ' ' }
+                Write-Host ("{0} {1,-8}  {2,-32}  {3}" -f $mark, $r.name, $r.pkgs, $r.shards)
+            }
+            Write-DotfilesHint 'Switch with: dotfiles config set profile <name>'
+            return 0
+        }
+        default {
+            Write-DotfilesError "Unknown profile action: $sub  (try: dotfiles profile list)"
+            return 1
+        }
+    }
 }
 
 function Invoke-Doctor {
@@ -472,16 +525,26 @@ function Get-DotfilesLinkPairs {
             }
         }
     }
-    # mise: only link the conf.d shards. ~/.config/mise/config.toml is left
-    # alone so `mise use -g` writes stay machine-local.
+    # mise: only link the conf.d shards that match the active profile.
+    # Strict superset: core → none; server → 00-server; develop → 00-server + 10-develop.
+    # ~/.config/mise/config.toml is left alone so `mise use -g` writes stay
+    # machine-local.
     $miseConfD = Join-Path $configDir 'mise\conf.d'
     if (Test-Path -LiteralPath $miseConfD) {
         $miseConfDTarget = Join-Path $homeDir '.config\mise\conf.d'
-        foreach ($f in Get-ChildItem -Path $miseConfD -File -Filter '*.toml' -ErrorAction SilentlyContinue) {
-            [pscustomobject]@{
-                Name   = "~/.config/mise/conf.d/$($f.Name)"
-                Source = $f.FullName
-                Link   = Join-Path $miseConfDTarget $f.Name
+        $wantedShards = switch ($env:DOTFILES_PROFILE) {
+            'server'  { @('00-server.toml') }
+            'develop' { @('00-server.toml', '10-develop.toml') }
+            default   { @() }  # core or unknown
+        }
+        foreach ($name in $wantedShards) {
+            $src = Join-Path $miseConfD $name
+            if (Test-Path -LiteralPath $src) {
+                [pscustomobject]@{
+                    Name   = "~/.config/mise/conf.d/$name"
+                    Source = $src
+                    Link   = Join-Path $miseConfDTarget $name
+                }
             }
         }
     }
@@ -510,6 +573,25 @@ function Invoke-Link {
             if ($actual -ieq $expected) {
                 Remove-Item -LiteralPath $miseDir -Force
                 Write-DotfilesStep 'Migrated: replaced legacy ~/.config/mise dir-symlink with real dir'
+            }
+        }
+    }
+
+    # Stale conf.d cleanup: remove any *.toml symlink whose target is in this
+    # repo's conf.d (handles profile-down-grade, shard renames, etc.). The
+    # local 99-machine.toml (real file) is left intact.
+    $confDTarget = Join-Path $HOME '.config\mise\conf.d'
+    if (Test-Path -LiteralPath $confDTarget) {
+        $repoConfD = [System.IO.Path]::GetFullPath((Join-Path $DotfilesRoot 'config\mise\conf.d'))
+        foreach ($f in Get-ChildItem -LiteralPath $confDTarget -Filter '*.toml' -Force -ErrorAction SilentlyContinue) {
+            if ($f.LinkType -in @('SymbolicLink','Junction')) {
+                $linkTarget = $f.Target
+                if ($linkTarget -and [System.IO.Path]::IsPathRooted($linkTarget)) {
+                    $linkTarget = [System.IO.Path]::GetFullPath($linkTarget)
+                }
+                if ($linkTarget -and $linkTarget.StartsWith($repoConfD, [StringComparison]::OrdinalIgnoreCase)) {
+                    Remove-Item -LiteralPath $f.FullName -Force
+                }
             }
         }
     }
@@ -592,6 +674,7 @@ function Show-Usage {
         '    update         git pull --rebase (no install)'
         '    status         Snapshot of profile, overrides, git state'
         '    config ACTION  get/set/list/edit/path/keys'
+        '    profile ACTION list  (or set via: config set profile <name>)'
         '    claude-clean   Strip session-volatile keys from claude settings.json'
         '    doctor         Read-only health check'
         '    link           Create/refresh symlinks'
@@ -600,8 +683,10 @@ function Show-Usage {
         ''
         'EXAMPLES'
         '    dotfiles install'
-        '    dotfiles config set profile dev'
-        '    dotfiles config set exclude eza,bat'
+        '    dotfiles profile list                # show profile contents'
+        '    dotfiles config set profile develop'
+        '    dotfiles config set extra tmux       # opt-in per machine'
+        '    dotfiles config edit                 # open managed block in $EDITOR'
         '    dotfiles claude-clean --force'
         '    dotfiles sync'
         '    dotfiles doctor'
@@ -618,6 +703,7 @@ $exit = switch ($Command) {
     'update'   { Invoke-Update }
     'status'   { Invoke-Status }
     'config'   { Invoke-ConfigCommand -ConfigArgs $Rest }
+    'profile'  { Invoke-ProfileCommand -Arguments $Rest }
     'claude-clean' {
         $force = ($Rest.Count -gt 0 -and $Rest[0] -eq '--force')
         Invoke-ClaudeClean -Force:$force

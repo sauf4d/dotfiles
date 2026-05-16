@@ -60,8 +60,8 @@ Entry points by OS:
 
 | OS | One-liner | Driver | Symlinks | Tool installs |
 |---|---|---|---|---|
-| macOS / Linux | `curl … \| bash` | `bin/dotfiles` (bash) | `bin/dotfiles link` | mise reads `config/mise/config.toml` |
-| Windows | `iwr … \| iex` | `bin/dotfiles.ps1` (pwsh) | Native pwsh `New-Item -ItemType SymbolicLink` | mise reads same `config/mise/config.toml` |
+| macOS / Linux | `curl … \| bash` | `bin/dotfiles` (bash) | `bin/dotfiles link` | mise reads `config/mise/conf.d/*.toml` |
+| Windows | `iwr … \| iex` | `bin/dotfiles.ps1` (pwsh) | Native pwsh `New-Item -ItemType SymbolicLink` | mise reads same `config/mise/conf.d/*.toml` |
 
 ---
 
@@ -71,7 +71,7 @@ Two things happen during `dotfiles install`. They have different owners.
 
 ### a. Tool binaries → owned by mise
 
-`config/mise/config.toml` lists every binary the user wants. The dotfiles
+`config/mise/conf.d/*.toml` lists every binary the user wants. The dotfiles
 installer's only job is to **install mise itself** and then run
 `mise install --yes`. mise's backends (github releases for CLI tools, native
 plugins for SDKs) handle per-OS binary fetching uniformly.
@@ -98,7 +98,7 @@ tools no-op gracefully.
 
 | Need | Where it lives |
 |---|---|
-| "Install this binary" | `config/mise/config.toml` entry |
+| "Install this binary" | `config/mise/conf.d/*.toml` entry |
 | "Set an alias / env var / run an eval" | `zsh/packages/<profile>/<tool>.zsh` and `pwsh/packages/<profile>/<tool>.ps1` (no template) |
 | "Install/uninstall/health logic that mise can't express" | Package file calling `init_package_template` |
 
@@ -132,7 +132,7 @@ Stored in `~/.zshenv` managed block, written by `dotfiles config set`:
 
 | Var | Purpose | Example |
 |---|---|---|
-| `DOTFILES_PROFILE` | Pick the active profile | `dev` |
+| `DOTFILES_PROFILE` | Pick the active profile | `develop` |
 | `DOTFILES_EXCLUDE` | Tools to drop from the profile (comma-sep) | `eza,bat` |
 | `DOTFILES_EXTRA` | Tools to add on top (comma-sep) | `htop,starship` |
 | `DOTFILES_VERBOSE` | Verbose logging on/off | `true` |
@@ -164,7 +164,7 @@ duplication, predictable behavior.
 ### Tool binaries
 
 mise installs the same versions on every OS via its github backend (single-
-binary releases). `config/mise/config.toml` is the single source of truth
+binary releases). `config/mise/conf.d/*.toml` is the single source of truth
 shared by all three platforms. No per-OS install branches in user-facing
 code.
 
@@ -223,7 +223,7 @@ keyboard via the controlling TTY).
 When piped non-interactively (CI, headless install), defaults are applied
 silently with a warning.
 
-Flags always override: `--profile=dev --exclude=eza --extra=htop` skips the
+Flags always override: `--profile=develop --extra=tmux,htop` skips the
 menu entirely.
 
 ---
@@ -411,7 +411,7 @@ stands on.
   non-install paths is a defect.
 
 **NFR-D: Profile renames keep legacy aliases for at least one major version.**
-- **What**: Renaming a profile (e.g. `full` → `dev`) MUST accept the old
+- **What**: Renaming a profile (e.g. `full` → `develop`, `dev` → `develop`) MUST accept the old
   name as a transparent alias for at least one release cycle. Machines
   pulling the update don't break on `git pull` — they keep working with
   the old name, with a warning suggesting they update.
@@ -446,20 +446,20 @@ stands on.
 | Area | State | Notes |
 |---|---|---|
 | Bash CLI (`bin/dotfiles`) | ✓ Shipped | install/sync/status/config/doctor/clean/uninstall/link/packages/menu |
-| `core/full` profiles | ✓ Shipped | Filesystem-derived; cumulative |
-| mise as installer | ✓ Shipped | `00-mise.zsh` package + `config/mise/config.toml` manifest |
-| Consolidated shell-init (`01-mise-tools.zsh`) | ✓ Shipped | 7 CLI tools' aliases/env in one file |
+| `core/server/develop` profiles | ✓ Shipped | Filesystem-derived; cumulative strict-superset chain |
+| mise as installer | ✓ Shipped | `zsh/packages/core/mise.zsh` + sharded `config/mise/conf.d/*.toml` manifest (`00-server.toml`, `10-develop.toml`); per-machine `99-machine.toml` overlay |
+| Consolidated shell-init (`mise-tools.zsh`) | ✓ Shipped | 6 CLI tools' aliases/env in one file (under `zsh/packages/develop/`) |
 | Symlink engine | ✓ Shipped | `link_directory_files` walks `config/*` |
 | `~/.zshenv` marker-block config | ✓ Shipped | `dotfiles config set <key> <value>` |
 | Two-tier logging | ✓ Shipped | `zsh/lib/log.sh` |
 | Doctor (basic) | ✓ Shipped | Per-package; provenance reporting in `pkg_doctor` |
 | Windows pwsh-native symlinks | ✓ Shipped | `dotfiles.ps1 link/unlink/verify` — `New-Item -ItemType SymbolicLink`; Developer Mode probe; replaces the prior Makefile dependency |
-| `core / server / dev` profile rename + split | ✓ Shipped | `full/` → `dev/`; empty `server/` directory; legacy `full` alias warns + migrates |
+| `core / server / develop` cumulative profile chain | ✓ Shipped | Strict superset `core ⊆ server ⊆ develop`; mise shards align by tier; legacy `dev`, `full`, `minimal` aliases warn + migrate |
 | `DOTFILES_EXCLUDE` / `DOTFILES_EXTRA` overrides | ✓ Shipped | `dotfiles config set exclude/extra <csv>`; mise applies per-tool at install time |
 | Interactive install menu (UC-18) | ✓ Shipped | `dotfiles install` (no flags) on a TTY → profile/extra/exclude picker; `</dev/tty` works under `curl \| bash` |
 | Doctor provenance reporting (UC-12) | ✓ Shipped | `pkg_doctor` walks `mise current` and labels each tool's source (mise/brew/apt/dnf/user/unknown) |
 | Stale-sync nudge (UC-10) | ✓ Shipped | `zsh/core/70-sync-nudge.zsh` — local stat on `.git/FETCH_HEAD`, no network |
-| Windows pwsh tree (`pwsh/packages/`) | ✓ Shipped | `pwsh/lib/Log.ps1` + `Platform.ps1`; `pwsh/profile/Initialize-Dotfiles.ps1`; `pwsh/packages/dev/00-Mise.ps1` + `01-MiseTools.ps1` |
+| Windows pwsh tree (`pwsh/packages/`) | ✓ Shipped | `pwsh/lib/Log.ps1` + `Platform.ps1`; `pwsh/profile/Initialize-Dotfiles.ps1`; `pwsh/packages/core/Mise.ps1` + `develop/MiseTools.ps1` |
 | Windows one-liner (`iwr … \| iex`) | ✓ Shipped | `bin/bootstrap.ps1` — bootstraps scoop, git, mise; clones repo; hands off to `dotfiles.ps1 install` |
 | `bin/dotfiles.ps1` | ✓ Shipped | install/sync/update/status/config/doctor/link/unlink parity with bash CLI |
 
