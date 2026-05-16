@@ -493,6 +493,27 @@ function Invoke-Link {
         Write-DotfilesHint  'Enable Developer Mode: Settings → Privacy & security → For developers'
         return 1
     }
+
+    # One-time migration: older installs dir-symlinked the whole ~/.config/mise
+    # to the repo. The new layout needs it as a real dir so per-file shard
+    # symlinks can land inside. Only unlink if it points at THIS repo's
+    # config/mise — never touch a foreign symlink.
+    $miseDir = Join-Path $HOME '.config\mise'
+    if (Test-Path -LiteralPath $miseDir) {
+        $miseItem = Get-Item -LiteralPath $miseDir -Force
+        if ($miseItem.LinkType -in @('SymbolicLink','Junction')) {
+            $expected = [System.IO.Path]::GetFullPath((Join-Path $DotfilesRoot 'config\mise'))
+            $actual = $miseItem.Target
+            if ($actual -and [System.IO.Path]::IsPathRooted($actual)) {
+                $actual = [System.IO.Path]::GetFullPath($actual)
+            }
+            if ($actual -ieq $expected) {
+                Remove-Item -LiteralPath $miseDir -Force
+                Write-DotfilesStep 'Migrated: replaced legacy ~/.config/mise dir-symlink with real dir'
+            }
+        }
+    }
+
     $linked = 0; $skipped = 0
     foreach ($p in Get-DotfilesLinkPairs) {
         if (New-DotfilesSymlink -LinkPath $p.Link -TargetPath $p.Source) {

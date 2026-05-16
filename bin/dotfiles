@@ -642,6 +642,19 @@ create_symlinks() {
         link_directory_files "$DOTFILES_ROOT/config/claude" "$HOME/.claude/" "Linking Claude Code config..."
     fi
 
+    # One-time migration: older installs dir-symlinked the whole ~/.config/mise
+    # to the repo. The new layout needs it to be a real dir with per-file shard
+    # symlinks inside, so detect the legacy link and replace it. Only remove if
+    # it points at THIS repo — never touch a foreign symlink.
+    if [[ -L "$HOME/.config/mise" ]]; then
+        _mise_link_target="$(readlink "$HOME/.config/mise" 2>/dev/null || true)"
+        if [[ "$_mise_link_target" == "$DOTFILES_ROOT/config/mise" ]]; then
+            rm -f "$HOME/.config/mise"
+            _dotfiles_log_step "Migrated: replaced legacy ~/.config/mise dir-symlink with real dir"
+        fi
+        unset _mise_link_target
+    fi
+
     # Link mise shared shards file-by-file into ~/.config/mise/conf.d/. Leaves
     # ~/.config/mise/config.toml alone — that's mise's machine-local scratch
     # where `mise use -g` writes go. Pre-create that file as a non-symlink
