@@ -146,30 +146,47 @@ pkg_doctor() {
     current="$(mise current 2>/dev/null || true)"
     if [[ -n "$current" ]]; then
         _dotfiles_log_dim "active tools:"
-        local tool ver bin_path real_path source
-        while IFS=$' \t' read -r tool ver; do
+        # NOTE: don't redeclare `ver` here — outer scope already has `local ver`
+        # from the mise --version capture, and `typeset name` on an already-set
+        # parameter prints a "name='value'" declaration trace in zsh.
+        local tool tool_ver bin_path real_path src mise_where _bin
+        while IFS=$' \t' read -r tool tool_ver; do
             [[ -z "$tool" ]] && continue
+            # Try the package name as the binary first (works for most tools).
             bin_path="$(command -v "$tool" 2>/dev/null || true)"
+            # Fall back: install dirs vary by backend (some have `bin/`, others
+            # like ripgrep's github release have a flat layout). Scan the whole
+            # install tree for any executable, then verify it's on PATH.
             if [[ -z "$bin_path" ]]; then
-                _dotfiles_log_dim "  $tool $ver  [MISSING]"
+                mise_where="$(mise where "$tool" 2>/dev/null || true)"
+                if [[ -n "$mise_where" && -d "$mise_where" ]]; then
+                    # zsh recursive glob: regular executable files (.x), nullglob (N)
+                    for _bin in "$mise_where"/**/*(N.x); do
+                        bin_path="$(command -v "${_bin:t}" 2>/dev/null || true)"
+                        [[ -n "$bin_path" ]] && break
+                    done
+                fi
+            fi
+            if [[ -z "$bin_path" ]]; then
+                _dotfiles_log_dim "  $tool $tool_ver  [MISSING]"
                 ((issues++))
                 continue
             fi
             # Resolve symlinks so we classify the real location, not the shim.
             real_path="$(readlink -f "$bin_path" 2>/dev/null || echo "$bin_path")"
             case "$real_path" in
-                *"/.local/share/mise/installs/"*)               source="mise" ;;
-                /opt/homebrew/*|/usr/local/Cellar/*|/usr/local/opt/*) source="brew" ;;
-                */.cargo/bin/*)                                 source="cargo" ;;
-                */.bun/bin/*)                                   source="bun" ;;
-                /usr/bin/*|/usr/sbin/*|/bin/*|/sbin/*)          source="system" ;;
-                */.local/bin/*)                                 source="user" ;;
-                *)                                              source="unknown" ;;
+                *"/.local/share/mise/installs/"*)                     src="mise" ;;
+                /opt/homebrew/*|/usr/local/Cellar/*|/usr/local/opt/*) src="brew" ;;
+                */.cargo/bin/*)                                       src="cargo" ;;
+                */.bun/bin/*)                                         src="bun" ;;
+                /usr/bin/*|/usr/sbin/*|/bin/*|/sbin/*)                src="system" ;;
+                */.local/bin/*)                                       src="user" ;;
+                *)                                                    src="unknown" ;;
             esac
-            if [[ "$source" == "mise" ]]; then
-                _dotfiles_log_dim "  $tool $ver  [mise]"
+            if [[ "$src" == "mise" ]]; then
+                _dotfiles_log_dim "  $tool $tool_ver  [mise]"
             else
-                _dotfiles_log_dim "  $tool $ver  [${source}] ⚠ expected mise, got ${bin_path}"
+                _dotfiles_log_dim "  $tool $tool_ver  [${src}] ⚠ expected mise, got ${bin_path}"
                 ((issues++))
             fi
         done <<< "$current"
