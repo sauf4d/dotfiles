@@ -42,7 +42,7 @@ logs/
 # add a new artifact in the future:
 #   git add -f .claude/path/to/file
 .claude/
-# Machine-local — see docs/USECASES.md UC-7
+
 zshenv
 
 # mise project-local config — the canonical manifest lives at
@@ -50,3 +50,4 @@ zshenv
 # `mise use` runs from the repo dir; ignore so it can't be tracked.
 /mise.toml
 /.mise.toml
+config/mise/config.toml
