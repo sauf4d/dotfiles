@@ -1343,7 +1343,9 @@ _install_interactive_menu() {
         for _p in "${profiles[@]}"; do
             local _marker="  "
             [[ "$_p" == "$default_profile" ]] && _marker="${GREEN}*${RESET} "
-            printf '    %b%d)%b %s%s\n' "$BOLD" "$_i" "$RESET" "$_marker" "$_p"
+            # %b on _marker so its embedded ANSI ('\033[32m') is interpreted;
+            # plain %s on _p since the profile name is literal text.
+            printf '    %b%d)%b %b%s\n' "$BOLD" "$_i" "$RESET" "$_marker" "$_p"
             ((_i++))
         done
         printf '\n'
