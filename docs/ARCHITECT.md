@@ -460,9 +460,9 @@ stands on.
 | Interactive install menu (UC-18) | ✓ Shipped | `dotfiles install` (no flags) on a TTY → profile/extra/exclude picker; `</dev/tty` works under `curl \| bash` |
 | Doctor provenance reporting (UC-12) | ✓ Shipped | `pkg_doctor` walks `mise current` and labels each tool's source (mise/brew/apt/dnf/user/unknown) |
 | Stale-sync nudge (UC-10) | ✓ Shipped | `zsh/core/70-sync-nudge.zsh` — local stat on `.git/FETCH_HEAD`, no network |
-| Windows pwsh tree (`pwsh/packages/`) | ○ Planned | `00-mise.ps1` + `01-mise-tools.ps1` |
-| Windows one-liner (`iwr … \| iex`) | ○ Planned | Bootstrap script + `tinyurl.com/get-dotfiles-win` |
-| `bin/dotfiles.ps1` | ○ Planned | install/sync/doctor parity with bash CLI |
+| Windows pwsh tree (`pwsh/packages/`) | ✓ Shipped | `pwsh/lib/Log.ps1` + `Platform.ps1`; `pwsh/profile/Initialize-Dotfiles.ps1`; `pwsh/packages/dev/00-Mise.ps1` + `01-MiseTools.ps1` |
+| Windows one-liner (`iwr … \| iex`) | ✓ Shipped | `bin/bootstrap.ps1` — bootstraps scoop, git, mise; clones repo; hands off to `dotfiles.ps1 install` |
+| `bin/dotfiles.ps1` | ✓ Shipped | install/sync/update/status/config/doctor/link/unlink parity with bash CLI |
 
 **Migration order recommendation**: profile rename → override vars →
 interactive menu → doctor provenance → pwsh tree → Windows one-liner.

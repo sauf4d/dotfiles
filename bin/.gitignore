@@ -1,3 +1,5 @@
 *
 !/dotfiles
+!/dotfiles.ps1
+!/bootstrap.ps1
 !/.gitignore

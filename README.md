@@ -55,13 +55,28 @@ iwr -useb https://tinyurl.com/get-dotfiles-win | iex
 ```
 
 Bootstraps scoop → installs git/mise → clones the repo → runs
-`mise install` for tools and `make link` for symlinks → injects shell
-integration into `$PROFILE`. Same tools, same versions as the Mac/Linux
-machines; uses PowerShell as the daily shell.
+`bin\dotfiles.ps1 install` (which runs `make link` for symlinks and
+`mise install` for tools) → injects a marker-delimited block into
+`$PROFILE` so new pwsh shells auto-load the dotfiles.
 
-Requires PowerShell 7+ and Windows **Developer Mode on** (Settings →
-Privacy & security → For developers) so non-admin shells can create
-symlinks.
+Same tools, same versions as the Mac/Linux machines; uses PowerShell as
+the daily shell.
+
+Requires:
+- **PowerShell 7+** — install via `winget install Microsoft.PowerShell`
+  if you're on Windows PowerShell 5.1.
+- **Developer Mode on** — Settings → Privacy & security → For developers
+  → Developer Mode. Lets non-admin shells create native symlinks; the
+  bootstrap probes and warns if disabled.
+- **fzf keybindings** (optional) — `Install-Module PSFzf -Scope CurrentUser -Force`.
+  Standalone `fzf` works without it; only the Ctrl-T / Ctrl-R hooks need PSFzf.
+
+Or clone manually:
+
+```powershell
+git clone https://github.com/ved0el/dotfiles.git $HOME\.dotfiles
+$HOME\.dotfiles\bin\dotfiles.ps1 install
+```
 
 ---
 
