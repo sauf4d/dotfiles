@@ -27,8 +27,11 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # Force UTF-8 console encoding so emoji/box-drawing in log helpers render
-# correctly in Windows Terminal (pwsh defaults to ANSI otherwise). Idempotent.
+# correctly in Windows Terminal. `chcp 65001` is the load-bearing one — it
+# changes the active console code page that Windows Terminal reads. The
+# .NET assignments cover the pipeline encoding for completeness. Idempotent.
 try {
+    if ($IsWindows -or $env:OS -eq 'Windows_NT') { chcp 65001 > $null 2>&1 }
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     $OutputEncoding            = [System.Text.Encoding]::UTF8
 } catch { }
@@ -239,32 +242,33 @@ function Invoke-Link   { & make -C $DotfilesRoot link;   return $LASTEXITCODE }
 function Invoke-Unlink { & make -C $DotfilesRoot unlink; return $LASTEXITCODE }
 
 function Show-Usage {
-    @"
-USAGE
-    dotfiles <command> [args]
-
-COMMANDS
-    install        Symlink configs + install mise tools
-    sync           git pull --ff-only + install
-    update         git pull --rebase (no install)
-    status         Snapshot of profile, overrides, git state
-    config <act>   get/set/list/edit/path/keys
-    doctor         Read-only health check
-    link           Create/refresh symlinks (via make link)
-    unlink         Remove managed symlinks
-    help, -h       Show this help
-
-EXAMPLES
-    dotfiles install
-    dotfiles config set profile dev
-    dotfiles config set exclude eza,bat
-    dotfiles sync
-    dotfiles doctor
-
-See docs/USECASES.md for full scenarios. The Windows pwsh CLI is a
-parity port of bin/dotfiles (bash); see README.md for cross-platform
-install instructions.
-"@
+    # Avoid here-strings — they're fragile on Windows when line endings get
+    # converted by git, and any `<` inside trips PowerShell's parser when
+    # the here-string fails to open. An array+join is bulletproof.
+    @(
+        'USAGE'
+        '    dotfiles COMMAND [args]'
+        ''
+        'COMMANDS'
+        '    install        Symlink configs + install mise tools'
+        '    sync           git pull --ff-only + install'
+        '    update         git pull --rebase (no install)'
+        '    status         Snapshot of profile, overrides, git state'
+        '    config ACTION  get/set/list/edit/path/keys'
+        '    doctor         Read-only health check'
+        '    link           Create/refresh symlinks'
+        '    unlink         Remove managed symlinks'
+        '    help, -h       Show this help'
+        ''
+        'EXAMPLES'
+        '    dotfiles install'
+        '    dotfiles config set profile dev'
+        '    dotfiles config set exclude eza,bat'
+        '    dotfiles sync'
+        '    dotfiles doctor'
+        ''
+        'See docs/USECASES.md for full scenarios.'
+    ) | ForEach-Object { Write-Host $_ }
 }
 
 # ── Dispatch ─────────────────────────────────────────────────────────────────

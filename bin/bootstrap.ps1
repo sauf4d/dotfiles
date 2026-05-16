@@ -21,7 +21,11 @@ $ErrorActionPreference = 'Stop'
 
 # Force UTF-8 console encoding so emoji/box-drawing characters render in
 # Windows Terminal. pwsh defaults to ANSI on Windows which turns them into '?'.
+# `chcp 65001` is the load-bearing one — it changes the console code page
+# that Windows Terminal reads. The two .NET assignments cover stdout pipeline
+# encoding for completeness.
 try {
+    if ($IsWindows -or $env:OS -eq 'Windows_NT') { chcp 65001 > $null 2>&1 }
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     $OutputEncoding            = [System.Text.Encoding]::UTF8
 } catch { }

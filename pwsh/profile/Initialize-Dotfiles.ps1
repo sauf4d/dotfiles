@@ -17,8 +17,10 @@
 
 # ── UTF-8 console encoding ──────────────────────────────────────────────────
 # Without this, pwsh emits ANSI-encoded bytes for non-ASCII glyphs (emoji,
-# box-drawing) and Windows Terminal renders them as `?`. Idempotent.
+# box-drawing) and Windows Terminal renders them as `?`. `chcp 65001` changes
+# the actual console code page; the .NET assignments cover pipeline encoding.
 try {
+    if ($IsWindows -or $env:OS -eq 'Windows_NT') { chcp 65001 > $null 2>&1 }
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     $OutputEncoding            = [System.Text.Encoding]::UTF8
 } catch { }
