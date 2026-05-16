@@ -126,11 +126,21 @@ function Test-DotfilesMiseHealth {
                 continue
             }
             $real = (Resolve-Path -LiteralPath $bin.Source -ErrorAction SilentlyContinue).Path
-            $src = switch -Regex ($real) {
-                '\\\.local\\share\\mise\\installs\\'    { 'mise'; break }
-                '\\scoop\\apps\\'                       { 'scoop'; break }
-                'C:\\Program Files\\'                   { 'system'; break }
-                default                                 { 'unknown' }
+            # Ask mise directly where it installed this tool — works regardless
+            # of the mise data dir (Linux ~/.local/share, Windows %LOCALAPPDATA%,
+            # or user-customized MISE_DATA_DIR). Fall back to substring match
+            # for cases where `mise where` fails.
+            $miseWhere = (mise where $tool 2>$null | Select-Object -First 1)
+            $src = if ($miseWhere -and $real -and $real.StartsWith($miseWhere, [StringComparison]::OrdinalIgnoreCase)) {
+                'mise'
+            } elseif ($real -match '[\\/]mise[\\/]installs[\\/]') {
+                'mise'
+            } elseif ($real -match '[\\/]scoop[\\/]apps[\\/]') {
+                'scoop'
+            } elseif ($real -match '^C:[\\/]Program Files[\\/]') {
+                'system'
+            } else {
+                'unknown'
             }
             if ($src -eq 'mise') {
                 Write-DotfilesDim "  $tool $toolVer  [mise]"
