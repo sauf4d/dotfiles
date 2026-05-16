@@ -1,0 +1,11 @@
+[tools]
+bat     = "latest"
+fd      = "latest"
+fzf     = "latest"
+jq      = "latest"
+ripgrep = "latest"
+zoxide  = "latest"
+
+[settings]
+not_found_auto_install = false   # don't install on command-not-found
+idiomatic_version_file = false   # ignore .nvmrc / .python-version etc.

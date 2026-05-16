@@ -625,15 +625,41 @@ create_symlinks() {
     # .p10k.zsh style file dotfiles land in $HOME.
     link_directory_files "$DOTFILES_ROOT" "$HOME/." "Linking dotfiles..." "files"
 
-    # Link config files (skip 'claude' — it lives at ~/.claude, not ~/.config/claude)
+    # Link config files. Two packages need special-case file-level symlinks
+    # instead of the default directory-symlink:
+    #   - claude → ~/.claude/* (different target dir)
+    #   - mise   → must NOT dir-symlink ~/.config/mise/, because mise writes
+    #              its own ~/.config/mise/config.toml on every `mise use -g`
+    #              and we don't want that file synced into the repo. Only the
+    #              shared shards under config/mise/conf.d/*.toml get linked.
     mkdir -p "$HOME/.config"
-    DOTFILES_CONFIG_EXCLUDE="claude" \
+    DOTFILES_CONFIG_EXCLUDE="claude:mise" \
         link_directory_files "$DOTFILES_ROOT/config" "$HOME/.config/" "Linking config files..."
 
     # Link Claude Code config files individually into ~/.claude/
     if [[ -d "$DOTFILES_ROOT/config/claude" ]]; then
         mkdir -p "$HOME/.claude"
         link_directory_files "$DOTFILES_ROOT/config/claude" "$HOME/.claude/" "Linking Claude Code config..."
+    fi
+
+    # Link mise shared shards file-by-file into ~/.config/mise/conf.d/. Leaves
+    # ~/.config/mise/config.toml alone — that's mise's machine-local scratch
+    # where `mise use -g` writes go. Pre-create that file as a non-symlink
+    # placeholder: without it, mise's `use -g` falls back to writing into the
+    # alphabetically-first conf.d file (which IS a symlink to the repo) and
+    # silently leaks per-machine declarations into the synced manifest.
+    if [[ -d "$DOTFILES_ROOT/config/mise/conf.d" ]]; then
+        mkdir -p "$HOME/.config/mise/conf.d"
+        link_directory_files "$DOTFILES_ROOT/config/mise/conf.d" \
+            "$HOME/.config/mise/conf.d/" "Linking mise conf.d shards..."
+    fi
+    if [[ ! -e "$HOME/.config/mise/config.toml" ]]; then
+        mkdir -p "$HOME/.config/mise"
+        cat > "$HOME/.config/mise/config.toml" <<'EOF'
+# Machine-local mise config — NOT synced via dotfiles.
+# Written by `mise use -g <tool>` and similar interactive commands.
+# Shared declarations live in ~/.config/mise/conf.d/*.toml (symlinks to the repo).
+EOF
     fi
 }
 
@@ -699,13 +725,18 @@ verify_symlinks() {
     # Check dotfiles symlinks
     check_directory_symlinks "$DOTFILES_ROOT" "$HOME/." "Checking dotfiles symlinks..." total_links broken_links
 
-    # Check config files symlinks (skip 'claude' — checked separately below)
-    DOTFILES_CONFIG_EXCLUDE="claude" \
+    # Check config files symlinks (skip 'claude' and 'mise' — both checked
+    # separately below because they use file-level symlinks, not dir-level)
+    DOTFILES_CONFIG_EXCLUDE="claude:mise" \
         check_directory_symlinks "$DOTFILES_ROOT/config" "$HOME/.config/" "Checking config files symlinks..." total_links broken_links
 
     # Check Claude Code config symlinks (~/.claude/)
     [[ -d "$DOTFILES_ROOT/config/claude" ]] && \
         check_directory_symlinks "$DOTFILES_ROOT/config/claude" "$HOME/.claude/" "Checking Claude Code config symlinks..." total_links broken_links
+
+    # Check mise conf.d shards (~/.config/mise/conf.d/)
+    [[ -d "$DOTFILES_ROOT/config/mise/conf.d" ]] && \
+        check_directory_symlinks "$DOTFILES_ROOT/config/mise/conf.d" "$HOME/.config/mise/conf.d/" "Checking mise conf.d shards..." total_links broken_links
 
     # Summary (always show)
     echo
@@ -1065,7 +1096,7 @@ config_command() {
 # Echoes "<total> <broken>" so the caller can read both with a single command.
 _status_count_symlinks() {
     local total=0 broken=0 link target
-    local -a scan_dirs=("$HOME" "$HOME/.config" "$HOME/.claude")
+    local -a scan_dirs=("$HOME" "$HOME/.config" "$HOME/.claude" "$HOME/.config/mise/conf.d")
     local dir
     for dir in "${scan_dirs[@]}"; do
         [[ -d "$dir" ]] || continue

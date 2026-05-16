@@ -1,0 +1,8 @@
+[tools]
+node = "latest"
+go = "latest"
+python = "latest"
+bun = "latest"
+pnpm = "latest"
+yarn = "latest"
+biome = "latest"

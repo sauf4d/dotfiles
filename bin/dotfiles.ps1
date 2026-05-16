@@ -60,9 +60,14 @@ $ManagedBegin = '# DOTFILES MANAGED BEGIN — do not edit between markers; use `
 $ManagedEnd   = '# DOTFILES MANAGED END'
 $ValidProfiles = @('core', 'server', 'dev')
 
-# config/* dirs to NOT symlink. claude is special-cased (per-file into
-# ~/.claude/, not a dir symlink); skhd + yabai are macOS-only daemons.
-$ExcludeConfigDirs = @('claude', 'skhd', 'yabai')
+# config/* dirs to NOT dir-symlink. Each name listed here is either special-
+# cased (file-by-file symlinks elsewhere) or platform-specific and skipped on
+# Windows:
+#   claude → per-file into ~/.claude/, not a dir symlink
+#   mise   → only the conf.d/*.toml shards get linked; ~/.config/mise/config.toml
+#            must stay machine-local because `mise use -g` writes there
+#   skhd, yabai → macOS-only daemons
+$ExcludeConfigDirs = @('claude', 'mise', 'skhd', 'yabai')
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 function Get-ConfigValue {
@@ -75,17 +80,13 @@ function Get-ConfigValue {
 }
 
 function Write-MiseOverrides {
-    # Generate a mise overlay file from DOTFILES_EXCLUDE / DOTFILES_EXTRA.
-    # Mise auto-loads ~/.config/mise/conf.d/*.toml, so dropping a file there
-    # layers cleanly over the cross-platform config/mise/config.toml without
-    # touching the repo-tracked manifest.
-    #
-    # Why: some tools in the default manifest (eg eza) have no aqua backend
-    # entry in mise's registry, so mise falls back to cargo: which compiles
-    # from source — fine on macOS/Linux, but Windows lacks the MSVC linker.
-    # Users on Windows exclude `eza` and add `aqua:eza-community/eza` instead.
+    # Generate a per-machine mise overlay from DOTFILES_EXCLUDE / DOTFILES_EXTRA.
+    # Lives at ~/.config/mise/conf.d/99-machine.toml — the `99-` prefix puts it
+    # AFTER the shared shards (00-common.toml, 10-langs.toml, …) in alphabetical
+    # load order, so machine settings override shared. The file is NOT a symlink
+    # to the repo; each machine has its own.
     $confDir = Join-Path $HOME '.config\mise\conf.d'
-    $overrideFile = Join-Path $confDir 'dotfiles.toml'
+    $overrideFile = Join-Path $confDir '99-machine.toml'
 
     $exParts = if ($env:DOTFILES_EXCLUDE) {
         $env:DOTFILES_EXCLUDE -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ }
@@ -128,7 +129,10 @@ function Write-MiseOverrides {
 
 function Save-DotfilesConfig {
     # Writes the marker block to $ConfigFile, preserving any user content
-    # above/below the markers (matches the bash CLI's save_config behavior).
+    # outside the markers. Strips ALL existing managed blocks first, then
+    # appends one fresh block — self-heals duplicates that previous bugs
+    # accumulated. The strip regex tolerates CRLF line endings (the `^…$`
+    # multiline form did not, which is how duplicates piled up).
     $profile_value = if ($env:DOTFILES_PROFILE) { $env:DOTFILES_PROFILE } else { 'core' }
     $verbose_value = if ($env:DOTFILES_VERBOSE) { $env:DOTFILES_VERBOSE } else { 'false' }
     $exclude_value = if ($env:DOTFILES_EXCLUDE) { $env:DOTFILES_EXCLUDE } else { '' }
@@ -150,14 +154,21 @@ function Save-DotfilesConfig {
 
     if (Test-Path $ConfigFile) {
         $content = Get-Content $ConfigFile -Raw
-        if ($content -match "(?ms)^# DOTFILES MANAGED BEGIN.*?# DOTFILES MANAGED END$") {
-            $content = $content -replace "(?ms)^# DOTFILES MANAGED BEGIN.*?# DOTFILES MANAGED END$", $block
+        # Strip every managed block (and any whitespace immediately after).
+        # Using (?s) only — no multiline ^/$ anchors that fight CRLF endings.
+        $stripped = [regex]::Replace(
+            $content,
+            '(?s)# DOTFILES MANAGED BEGIN.*?# DOTFILES MANAGED END\s*',
+            ''
+        )
+        $stripped = $stripped.TrimEnd()
+        if ($stripped) {
+            Set-Content -Path $ConfigFile -Value ($stripped + "`r`n`r`n" + $block + "`r`n") -NoNewline
         } else {
-            $content = $content.TrimEnd() + "`r`n`r`n" + $block + "`r`n"
+            Set-Content -Path $ConfigFile -Value ($block + "`r`n") -NoNewline
         }
-        Set-Content -Path $ConfigFile -Value $content -NoNewline
     } else {
-        Set-Content -Path $ConfigFile -Value ($block + "`r`n")
+        Set-Content -Path $ConfigFile -Value ($block + "`r`n") -NoNewline
     }
 
     # Keep the mise overlay in sync with EXCLUDE/EXTRA.
@@ -189,6 +200,23 @@ function Invoke-Install {
     $rc = Invoke-Link
     if ($rc -ne 0) {
         Write-DotfilesWarning "link reported $rc issue(s) — see output above"
+    }
+
+    # 1b. Pre-create ~/.config/mise/config.toml as a non-symlink placeholder.
+    # mise's `use -g` writes go here. Without this file, mise falls back to
+    # writing into the alphabetically-first conf.d/*.toml — which IS a symlink
+    # to the repo — and silently leaks per-machine tools into the synced manifest.
+    $miseLocal = Join-Path $HOME '.config\mise\config.toml'
+    if (-not (Test-Path -LiteralPath $miseLocal)) {
+        $miseDir = Split-Path -Parent $miseLocal
+        if (-not (Test-Path -LiteralPath $miseDir)) {
+            New-Item -ItemType Directory -Path $miseDir -Force | Out-Null
+        }
+        @(
+            '# Machine-local mise config — NOT synced via dotfiles.'
+            '# Written by `mise use -g <tool>` and similar interactive commands.'
+            '# Shared declarations live in ~/.config/mise/conf.d/*.toml (symlinks to the repo).'
+        ) -join "`n" | Set-Content -LiteralPath $miseLocal -Encoding utf8 -NoNewline
     }
 
     # 2. Drop the mise overlay so DOTFILES_EXCLUDE/EXTRA take effect on install.
@@ -236,8 +264,12 @@ function Invoke-Status {
 }
 
 function Invoke-ConfigCommand {
-    param([string[]]$Args)
-    $action = if ($Args.Count -gt 0) { $Args[0] } else { 'list' }
+    # Param name MUST NOT be `$Args` — that name collides with PowerShell's
+    # automatic $args variable, and the parameter binder silently drops the
+    # value passed via `-Args …`. Symptom: every subcommand fell through to
+    # the default `list` action because $Args inside was always empty.
+    param([string[]]$ConfigArgs)
+    $action = if ($ConfigArgs.Count -gt 0) { $ConfigArgs[0] } else { 'list' }
     switch ($action) {
         'list'    {
             Write-DotfilesResult 'profile' (Get-ConfigValue DOTFILES_PROFILE)
@@ -247,13 +279,13 @@ function Invoke-ConfigCommand {
             Write-DotfilesResult 'file'    $ConfigFile
         }
         'get'     {
-            if ($Args.Count -lt 2) { Write-DotfilesError 'Usage: dotfiles config get <key>'; return 1 }
-            Write-Output (Get-ConfigValue ("DOTFILES_" + $Args[1].ToUpper()))
+            if ($ConfigArgs.Count -lt 2) { Write-DotfilesError 'Usage: dotfiles config get <key>'; return 1 }
+            Write-Output (Get-ConfigValue ("DOTFILES_" + $ConfigArgs[1].ToUpper()))
         }
         'set'     {
-            if ($Args.Count -lt 2) { Write-DotfilesError 'Usage: dotfiles config set <key> <value>'; return 1 }
-            $key = $Args[1].ToLower()
-            $value = if ($Args.Count -ge 3) { $Args[2] } else { '' }
+            if ($ConfigArgs.Count -lt 2) { Write-DotfilesError 'Usage: dotfiles config set <key> <value>'; return 1 }
+            $key = $ConfigArgs[1].ToLower()
+            $value = if ($ConfigArgs.Count -ge 3) { $ConfigArgs[2] } else { '' }
             switch ($key) {
                 'profile' {
                     if ($value -notin $ValidProfiles) {
@@ -278,6 +310,74 @@ function Invoke-ConfigCommand {
         'path'    { Write-Output $ConfigFile }
         'keys'    { 'profile','verbose','exclude','extra' | ForEach-Object { Write-Output $_ } }
         default   { Write-DotfilesError "Unknown action: $action"; return 1 }
+    }
+    return 0
+}
+
+function Invoke-ClaudeClean {
+    # Strip session-volatile keys from the synced config/claude/settings.json
+    # so `git status` stops showing churn from /model, /effort, UI toggles, etc.
+    # Mirrors bin/dotfiles claude_clean(). Dry-run by default; --force applies.
+    # Requires jq (shipped via mise on every profile that needs it).
+    param([switch]$Force)
+
+    $target = Join-Path $DotfilesRoot 'config\claude\settings.json'
+    Write-DotfilesStep 'Claude clean'
+
+    if (-not (Get-Command jq -ErrorAction SilentlyContinue)) {
+        Write-DotfilesError 'jq required but not installed'
+        Write-DotfilesHint  'install via: dotfiles install  (jq ships with the dev profile)'
+        return 1
+    }
+    if (-not (Test-Path -LiteralPath $target)) {
+        Write-DotfilesError "settings.json not found: $target"
+        return 1
+    }
+
+    # Keep this list in sync with bin/dotfiles claude_clean().
+    $noise = @(
+        'model','effortLevel','awaySummaryEnabled','preferredNotifChannel',
+        'inputNeededNotifEnabled','skipAutoPermissionPrompt',
+        'feedbackSurveyState','lastOnboardingVersion','subscriptionNoticeCount',
+        'firstStartTime'
+    )
+
+    # Treat only currently-present keys as drift (so "already clean" is silent).
+    $removed = @()
+    foreach ($k in $noise) {
+        & jq -e "has(`"$k`")" $target *> $null
+        if ($LASTEXITCODE -eq 0) { $removed += $k }
+    }
+    if ($removed.Count -eq 0) {
+        Write-DotfilesSummary 'Already clean — no volatile keys present.'
+        return 0
+    }
+
+    # One jq invocation deletes all noise keys at once.
+    $delArgs = ($noise | ForEach-Object { ".$_" }) -join ', '
+    $filter  = "del($delArgs)"
+
+    $jqLines = & jq $filter $target
+    if ($LASTEXITCODE -ne 0) {
+        Write-DotfilesError 'jq filter failed'
+        return 1
+    }
+
+    if ($Force) {
+        # Re-join with LF + UTF-8 no-BOM so the output byte-matches the bash
+        # CLI run via Git Bash (jq writes LF + trailing newline). Avoids
+        # round-trip line-ending churn in `git diff`.
+        $tmp = [System.IO.Path]::GetTempFileName()
+        $jqText = ($jqLines -join "`n") + "`n"
+        [System.IO.File]::WriteAllText($tmp, $jqText, [System.Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $tmp -Destination $target -Force
+        Write-DotfilesStep "Stripped $($removed.Count) volatile key(s):"
+        foreach ($k in $removed) { Write-DotfilesDetail $k }
+        Write-DotfilesSummary "Wrote $target"
+    } else {
+        Write-DotfilesStep "Would strip $($removed.Count) volatile key(s) (dry-run):"
+        foreach ($k in $removed) { Write-DotfilesDetail $k }
+        Write-DotfilesDetail 'Pass --force to apply.'
     }
     return 0
 }
@@ -372,6 +472,19 @@ function Get-DotfilesLinkPairs {
             }
         }
     }
+    # mise: only link the conf.d shards. ~/.config/mise/config.toml is left
+    # alone so `mise use -g` writes stay machine-local.
+    $miseConfD = Join-Path $configDir 'mise\conf.d'
+    if (Test-Path -LiteralPath $miseConfD) {
+        $miseConfDTarget = Join-Path $homeDir '.config\mise\conf.d'
+        foreach ($f in Get-ChildItem -Path $miseConfD -File -Filter '*.toml' -ErrorAction SilentlyContinue) {
+            [pscustomobject]@{
+                Name   = "~/.config/mise/conf.d/$($f.Name)"
+                Source = $f.FullName
+                Link   = Join-Path $miseConfDTarget $f.Name
+            }
+        }
+    }
 }
 
 function Invoke-Link {
@@ -458,6 +571,7 @@ function Show-Usage {
         '    update         git pull --rebase (no install)'
         '    status         Snapshot of profile, overrides, git state'
         '    config ACTION  get/set/list/edit/path/keys'
+        '    claude-clean   Strip session-volatile keys from claude settings.json'
         '    doctor         Read-only health check'
         '    link           Create/refresh symlinks'
         '    unlink         Remove managed symlinks'
@@ -467,6 +581,7 @@ function Show-Usage {
         '    dotfiles install'
         '    dotfiles config set profile dev'
         '    dotfiles config set exclude eza,bat'
+        '    dotfiles claude-clean --force'
         '    dotfiles sync'
         '    dotfiles doctor'
         ''
@@ -481,7 +596,11 @@ $exit = switch ($Command) {
     'sync'     { Invoke-Sync }
     'update'   { Invoke-Update }
     'status'   { Invoke-Status }
-    'config'   { Invoke-ConfigCommand -Args $Rest }
+    'config'   { Invoke-ConfigCommand -ConfigArgs $Rest }
+    'claude-clean' {
+        $force = ($Rest.Count -gt 0 -and $Rest[0] -eq '--force')
+        Invoke-ClaudeClean -Force:$force
+    }
     'doctor'   { Invoke-Doctor }
     'link'     { Invoke-Link }
     'unlink'   { Invoke-Unlink }
