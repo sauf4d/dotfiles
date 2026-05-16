@@ -44,3 +44,9 @@ logs/
 .claude/
 # Machine-local — see docs/USECASES.md UC-7
 zshenv
+
+# mise project-local config — the canonical manifest lives at
+# config/mise/config.toml. mise auto-creates a root-level mise.toml when
+# `mise use` runs from the repo dir; ignore so it can't be tracked.
+/mise.toml
+/.mise.toml
