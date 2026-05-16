@@ -14,7 +14,8 @@ set trimblanks        # strip trailing whitespace on save
 
 # ── Navigation & input ────────────────────────────────────────────────────────
 set mouse             # click to position cursor, scroll with wheel
-set smooth            # scroll line-by-line instead of half-page jumps
+# `set smooth` and `set morespace` were removed in nano 4.0 — their behavior
+# is the default now; keeping the directives would error out at startup.
 
 # ── Search ────────────────────────────────────────────────────────────────────
 set casesensitive     # case-sensitive by default; toggle with Alt+C
@@ -26,15 +27,16 @@ set multibuffer       # ^R opens files in additional buffers instead of replacin
 
 # ── Interface ─────────────────────────────────────────────────────────────────
 set softwrap          # wrap display at screen edge without inserting newlines
-set morespace         # use the blank line below the title bar for content
 
 # ── Syntax highlighting ───────────────────────────────────────────────────────
-# Uncomment the line that matches where nano stores its highlight files.
-# Modern nano ships them; the system /usr/bin/nano on macOS (pico) does not.
+# Intentionally no `include` lines here — nano 7+ errors on globs that match
+# zero files, so a single hard-coded path breaks the other OS. Instead we rely
+# on the system-level loader, which both platforms already wire up correctly:
 #
-# Linux (most distros):
-# include "/usr/share/nano/*.nanorc"
+#   Linux  /etc/nanorc                        → include "/usr/share/nano/*.nanorc"
+#   macOS  $(brew --prefix)/etc/nanorc        → include "$(brew --prefix)/share/nano/*.nanorc"
 #
-# macOS via Homebrew — install real nano first: brew install nano
-# include "/opt/homebrew/share/nano/*.nanorc"    # Apple Silicon
-# include "/usr/local/share/nano/*.nanorc"       # Intel
+# /etc/nanorc (or its Homebrew equivalent) is loaded BEFORE ~/.nanorc, so the
+# syntax files are already registered by the time this file is read. On macOS
+# the stock /usr/bin/nano ships no syntax files at all — install GNU nano via
+# `brew install nano` and the brewed wrapper loads its own etc/nanorc.
