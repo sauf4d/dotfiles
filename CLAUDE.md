@@ -17,7 +17,6 @@ Developer and AI-agent reference. Architecture rationale lives in
 | `pwsh/**/*.ps1` *(planned)* | **PowerShell** | Mirror of zsh tree for Windows. Loaded by `$PROFILE`. |
 | `zsh/lib/log.sh` | **POSIX sh** (`#!/bin/sh`) | Sourced by both `bin/dotfiles` (bash) and `installer.zsh` (zsh). Must stay POSIX-compatible. |
 | `zsh/lib/ui.sh` | **Bash** (`#!/usr/bin/env bash`) | Sourced ONLY by `bin/dotfiles`. Bash-only helpers (spinner, table, badge, progress, Levenshtein). Never sourced by zsh shell startup. |
-| `Makefile` | **GNU make + Git Bash** (Windows-only) | Hard-fails on macOS/Linux. Force-pins `SHELL` to Git-Bash via `git --exec-path`. |
 
 Do not mix languages across these boundaries.
 

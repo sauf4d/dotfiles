@@ -56,7 +56,7 @@ if (-not (Get-Command scoop -ErrorAction SilentlyContinue)) {
     _ok 'scoop present'
 }
 
-# ── 3. git + mise ────────────────────────────────────────────────────────────
+# ── 3. git + mise (no make needed — symlinks are native pwsh now) ───────────
 foreach ($tool in @('git', 'mise')) {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
         _say "scoop install $tool"

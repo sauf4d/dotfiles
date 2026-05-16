@@ -9,13 +9,13 @@
 #   status     Snapshot of profile, git state, symlinks
 #   config     get/set/list/edit/keys for $PROFILE managed block
 #   doctor     Read-only health check
-#   link       Create/refresh symlinks (delegates to make link via Git Bash)
-#   unlink     Remove managed symlinks (delegates to make unlink)
+#   link       Create/refresh symlinks (native pwsh New-Item -ItemType SymbolicLink)
+#   unlink     Remove managed symlinks
 #   help       Show usage
 #
-# Symlink operations shell out to `make link/unlink/verify` so we reuse the
-# tested Makefile logic. Tool install is mise. $PROFILE injection writes a
-# marker-delimited block so user content above/below is preserved.
+# Symlinks are created natively in pwsh — no Makefile, no Git Bash, no `make`
+# dependency. Tool install is mise. $PROFILE injection writes a marker-
+# delimited block so user content above/below is preserved.
 # =============================================================================
 
 [CmdletBinding()]
@@ -59,6 +59,10 @@ $ConfigFile = if ($PROFILE.CurrentUserAllHosts) { $PROFILE.CurrentUserAllHosts }
 $ManagedBegin = '# DOTFILES MANAGED BEGIN — do not edit between markers; use `dotfiles config set`'
 $ManagedEnd   = '# DOTFILES MANAGED END'
 $ValidProfiles = @('core', 'server', 'dev')
+
+# config/* dirs to NOT symlink. claude is special-cased (per-file into
+# ~/.claude/, not a dir symlink); skhd + yabai are macOS-only daemons.
+$ExcludeConfigDirs = @('claude', 'skhd', 'yabai')
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 function Get-ConfigValue {
@@ -110,20 +114,13 @@ function Invoke-Install {
     Write-DotfilesStep "Installing dotfiles (profile=$($env:DOTFILES_PROFILE ?? 'core'))"
     $env:DOTFILES_INSTALL = 'true'
 
-    # 1. Symlinks via Makefile + Git Bash.
-    if (Get-Command make -ErrorAction SilentlyContinue) {
-        Write-DotfilesStep 'Linking configs via Makefile'
-        & make -C $DotfilesRoot link
-        if ($LASTEXITCODE -ne 0) {
-            Write-DotfilesWarning "make link returned $LASTEXITCODE — symlinks may be incomplete"
-        }
-    } else {
-        Write-DotfilesError 'make not found — install Git for Windows: scoop install git'
-        return 1
+    # 1. Symlinks — native pwsh, no Makefile dependency.
+    $rc = Invoke-Link
+    if ($rc -ne 0) {
+        Write-DotfilesWarning "link reported $rc issue(s) — see output above"
     }
 
     # 2. Mise + tool install — dot-source the package to fire its init.
-    $env:DOTFILES_INSTALL = 'true'
     . (Join-Path $DotfilesRoot 'pwsh\packages\dev\00-Mise.ps1')
 
     # 3. Write the $PROFILE managed block.
@@ -221,11 +218,8 @@ function Invoke-Doctor {
             Write-DotfilesWarning "$t not found"; $issues++
         }
     }
-    Write-DotfilesStep 'Checking symlinks (make verify)'
-    if (Get-Command make -ErrorAction SilentlyContinue) {
-        & make -C $DotfilesRoot verify
-        if ($LASTEXITCODE -ne 0) { $issues++ }
-    }
+    Write-DotfilesStep 'Checking symlinks'
+    $issues += (Invoke-Verify)
     if (Test-Path (Join-Path $DotfilesRoot 'pwsh\packages\dev\00-Mise.ps1')) {
         . (Join-Path $DotfilesRoot 'pwsh\packages\dev\00-Mise.ps1')
         $issues += (Test-DotfilesMiseHealth)
@@ -238,8 +232,136 @@ function Invoke-Doctor {
     return $issues
 }
 
-function Invoke-Link   { & make -C $DotfilesRoot link;   return $LASTEXITCODE }
-function Invoke-Unlink { & make -C $DotfilesRoot unlink; return $LASTEXITCODE }
+# ── Symlink helpers (native pwsh — replaces make link/unlink/verify) ────────
+
+function Test-NativeSymlinkSupport {
+    # Probe by creating a real symlink — Developer Mode or admin required on
+    # Windows for non-admin native symlinks. Returns $true if supported.
+    $probe = Join-Path $env:TEMP "_dotfiles_symlink_probe_$([guid]::NewGuid().Guid)"
+    try {
+        New-Item -ItemType SymbolicLink -Path $probe -Value $env:TEMP -ErrorAction Stop | Out-Null
+        Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function New-DotfilesSymlink {
+    # Create or refresh a single symlink. Idempotent: removes an existing
+    # symlink before recreating; refuses to overwrite a real file/dir.
+    param([Parameter(Mandatory)][string]$LinkPath,
+          [Parameter(Mandatory)][string]$TargetPath)
+    if (Test-Path -LiteralPath $LinkPath) {
+        $item = Get-Item -LiteralPath $LinkPath -Force
+        if ($item.LinkType -eq 'SymbolicLink' -or $item.LinkType -eq 'Junction') {
+            Remove-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
+        } else {
+            Write-DotfilesWarning "SKIP $LinkPath exists and is not a symlink"
+            return $false
+        }
+    }
+    $parent = Split-Path -Parent $LinkPath
+    if (-not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+    try {
+        New-Item -ItemType SymbolicLink -Path $LinkPath -Value $TargetPath -ErrorAction Stop | Out-Null
+        return $true
+    } catch {
+        Write-DotfilesWarning "Failed to link $LinkPath -> $TargetPath ($($_.Exception.Message))"
+        return $false
+    }
+}
+
+function Get-DotfilesLinkPairs {
+    # Yield [pscustomobject]@{Name; Source; Link} for every managed symlink.
+    # config/* (minus exclude list) → ~/.config/* (dir symlinks)
+    # config/claude/* (files only)  → ~/.claude/*   (per-file symlinks)
+    $configDir = Join-Path $DotfilesRoot 'config'
+    $homeDir = $HOME
+    foreach ($pkg in Get-ChildItem -Path $configDir -Directory -ErrorAction SilentlyContinue) {
+        if ($ExcludeConfigDirs -contains $pkg.Name) { continue }
+        [pscustomobject]@{
+            Name   = "~/.config/$($pkg.Name)"
+            Source = $pkg.FullName
+            Link   = Join-Path (Join-Path $homeDir '.config') $pkg.Name
+        }
+    }
+    $claudeSrc = Join-Path $configDir 'claude'
+    if (Test-Path -LiteralPath $claudeSrc) {
+        foreach ($f in Get-ChildItem -Path $claudeSrc -File -ErrorAction SilentlyContinue) {
+            [pscustomobject]@{
+                Name   = "~/.claude/$($f.Name)"
+                Source = $f.FullName
+                Link   = Join-Path (Join-Path $homeDir '.claude') $f.Name
+            }
+        }
+    }
+}
+
+function Invoke-Link {
+    if (-not (Test-NativeSymlinkSupport)) {
+        Write-DotfilesError 'Cannot create native symlinks'
+        Write-DotfilesHint  'Enable Developer Mode: Settings → Privacy & security → For developers'
+        return 1
+    }
+    $linked = 0; $skipped = 0
+    foreach ($p in Get-DotfilesLinkPairs) {
+        if (New-DotfilesSymlink -LinkPath $p.Link -TargetPath $p.Source) {
+            Write-DotfilesDetail "link $($p.Name)"
+            $linked++
+        } else {
+            $skipped++
+        }
+    }
+    Write-DotfilesSummary "Linked $linked, skipped $skipped"
+    return $skipped
+}
+
+function Invoke-Unlink {
+    $removed = 0
+    foreach ($p in Get-DotfilesLinkPairs) {
+        if (Test-Path -LiteralPath $p.Link) {
+            $item = Get-Item -LiteralPath $p.Link -Force
+            if ($item.LinkType -eq 'SymbolicLink' -or $item.LinkType -eq 'Junction') {
+                Remove-Item -LiteralPath $p.Link -Force -ErrorAction SilentlyContinue
+                Write-DotfilesDetail "rm $($p.Name)"
+                $removed++
+            }
+        }
+    }
+    Write-DotfilesSummary "Removed $removed symlink(s)"
+    return 0
+}
+
+function Invoke-Verify {
+    # Report OK / MISSING / STALE / CONFLICT per managed link.
+    # Returns the count of non-OK entries (for doctor's issue tally).
+    $issues = 0
+    foreach ($p in Get-DotfilesLinkPairs) {
+        if (-not (Test-Path -LiteralPath $p.Link)) {
+            Write-DotfilesDetail "MISSING   $($p.Name)"
+            $issues++
+            continue
+        }
+        $item = Get-Item -LiteralPath $p.Link -Force
+        if ($item.LinkType -notin @('SymbolicLink', 'Junction')) {
+            Write-DotfilesDetail "CONFLICT  $($p.Name) (not a symlink)"
+            $issues++
+            continue
+        }
+        $target = (Resolve-Path -LiteralPath $p.Link -ErrorAction SilentlyContinue).Path
+        $expected = (Resolve-Path -LiteralPath $p.Source -ErrorAction SilentlyContinue).Path
+        if ($target -eq $expected) {
+            Write-DotfilesDetail "OK        $($p.Name)"
+        } else {
+            Write-DotfilesDetail "STALE     $($p.Name) -> $($item.Target)"
+            $issues++
+        }
+    }
+    return $issues
+}
 
 function Show-Usage {
     # Avoid here-strings — they're fragile on Windows when line endings get

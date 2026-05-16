@@ -55,7 +55,7 @@ iwr -useb https://tinyurl.com/get-dotfiles-win | iex
 ```
 
 Bootstraps scoop → installs git/mise → clones the repo → runs
-`bin\dotfiles.ps1 install` (which runs `make link` for symlinks and
+`bin\dotfiles.ps1 install` (which creates native pwsh symlinks and
 `mise install` for tools) → injects a marker-delimited block into
 `$PROFILE` so new pwsh shells auto-load the dotfiles.
 

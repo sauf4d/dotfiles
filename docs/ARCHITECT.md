@@ -34,7 +34,6 @@ more use cases. If a piece doesn't serve a use case, it's wrong.
 ├── bin/
 │   ├── dotfiles            Bash CLI — Unix entrypoint for install/sync/doctor
 │   └── dotfiles.ps1        PowerShell CLI — Windows entrypoint (planned)
-├── Makefile                Windows symlink target — minimal, Git-Bash-driven
 ├── config/
 │   ├── mise/config.toml    SINGLE source of truth for which tools are installed
 │   ├── bat/                Each tool's user config — symlinked to ~/.config/<tool>/
@@ -62,7 +61,7 @@ Entry points by OS:
 | OS | One-liner | Driver | Symlinks | Tool installs |
 |---|---|---|---|---|
 | macOS / Linux | `curl … \| bash` | `bin/dotfiles` (bash) | `bin/dotfiles link` | mise reads `config/mise/config.toml` |
-| Windows | `iwr … \| iex` (planned) | `bin/dotfiles.ps1` / `make link` | `make link` (Git-Bash) | mise reads same `config/mise/config.toml` |
+| Windows | `iwr … \| iex` | `bin/dotfiles.ps1` (pwsh) | Native pwsh `New-Item -ItemType SymbolicLink` | mise reads same `config/mise/config.toml` |
 
 ---
 
@@ -332,7 +331,7 @@ Unchanged from previous architecture. See [CLAUDE.md](../CLAUDE.md)
 | **Interactive menu when flags absent + TTY available** | Non-tech users don't always know the flag form. `</dev/tty` lets the menu work under `curl \| bash`. |
 | **No auto-sync on shell startup** | Surprises break sessions. Stale nudge is the friendly middle ground. |
 | **Idempotency as architecture, not a feature** | Recovery from any state via re-running install. No separate "repair" code. |
-| **Windows = mise + Makefile + pwsh tree** (not symlinks-only) | mise's cross-platform binaries make this affordable. Promotes Windows from second-class to peer. |
+| **Windows = mise + native pwsh symlinks + pwsh tree** | mise's cross-platform binaries make this affordable. Native pwsh `New-Item -ItemType SymbolicLink` eliminated the Makefile + Git Bash + make dependency that was the original Windows entry point. Promotes Windows from second-class to peer. |
 | **No cross-shell translator** | Translating zsh snippets to pwsh on the fly is magic that breaks. Two short files per tool, written once. |
 
 ---
@@ -454,7 +453,7 @@ stands on.
 | `~/.zshenv` marker-block config | ✓ Shipped | `dotfiles config set <key> <value>` |
 | Two-tier logging | ✓ Shipped | `zsh/lib/log.sh` |
 | Doctor (basic) | ✓ Shipped | Per-package; provenance reporting in `pkg_doctor` |
-| Makefile Windows symlinks | ✓ Shipped | `make link/unlink/verify` |
+| Windows pwsh-native symlinks | ✓ Shipped | `dotfiles.ps1 link/unlink/verify` — `New-Item -ItemType SymbolicLink`; Developer Mode probe; replaces the prior Makefile dependency |
 | `core / server / dev` profile rename + split | ✓ Shipped | `full/` → `dev/`; empty `server/` directory; legacy `full` alias warns + migrates |
 | `DOTFILES_EXCLUDE` / `DOTFILES_EXTRA` overrides | ✓ Shipped | `dotfiles config set exclude/extra <csv>`; mise applies per-tool at install time |
 | Interactive install menu (UC-18) | ✓ Shipped | `dotfiles install` (no flags) on a TTY → profile/extra/exclude picker; `</dev/tty` works under `curl \| bash` |
