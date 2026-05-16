@@ -42,3 +42,5 @@ logs/
 # add a new artifact in the future:
 #   git add -f .claude/path/to/file
 .claude/
+# Machine-local — see docs/USECASES.md UC-7
+zshenv
