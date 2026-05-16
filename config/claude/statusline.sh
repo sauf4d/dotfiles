@@ -33,16 +33,33 @@ COST=$(J '.cost.total_cost_usd // 0')
 DUR_MS=$(J '.cost.total_duration_ms // 0')
 PCT_USED=$(J '.context_window.used_percentage // 0' | cut -d. -f1)
 
-# Cache hit rate — surface cumulative prompt-cache reuse so degraded caching
-# is visible at a glance. Schema varies across Claude Code releases; try the
-# most common shapes and fall back to 0 (no display) when none match.
-CACHE_READ=$(J '.cost.total_cache_read_input_tokens // .cost.cache_read_input_tokens // .usage.cache_read_input_tokens // 0')
-CACHE_INPUT=$(J '.cost.total_input_tokens // .cost.input_tokens // .usage.input_tokens // 0')
-if [ "$CACHE_READ" -gt 0 ] || [ "$CACHE_INPUT" -gt 0 ]; then
-	_denom=$((CACHE_READ + CACHE_INPUT))
-	CACHE_HIT=$((_denom > 0 ? CACHE_READ * 100 / _denom : 0))
-else
-	CACHE_HIT=""
+# Cache hit rate — read token usage from the transcript JSONL, since the
+# statusline JSON payload does not expose per-token cache counters.
+# We sum cache_read_input_tokens, input_tokens, and cache_creation_input_tokens
+# across all assistant turns that have a .message.usage block, then compute:
+#   hit% = cache_read * 100 / (cache_read + input_tokens + cache_creation)
+# (cache_creation is uncached input, so it belongs in the denominator.)
+# Performance: cap at the last 2000 lines so large transcripts stay fast.
+CACHE_HIT=""
+TRANSCRIPT=$(J '.transcript_path')
+if [ -n "$TRANSCRIPT" ] && [ -f "$TRANSCRIPT" ]; then
+	read -r _cr _inp _cc < <(
+		tail -n 2000 "$TRANSCRIPT" \
+		| jq -s -r '
+			[ .[]
+			  | select(.type == "assistant" and .message.usage != null)
+			  | .message.usage
+			] | [
+			    (map(.cache_read_input_tokens  // 0) | add // 0),
+			    (map(.input_tokens             // 0) | add // 0),
+			    (map(.cache_creation_input_tokens // 0) | add // 0)
+			  ] | @tsv
+		' 2>/dev/null | tr -d '\r'
+	)
+	_denom=$(( ${_cr:-0} + ${_inp:-0} + ${_cc:-0} ))
+	if [ "${_cr:-0}" -gt 0 ] && [ "$_denom" -gt 0 ]; then
+		CACHE_HIT=$(( _cr * 100 / _denom ))
+	fi
 fi
 
 RL5_PCT=$(J '.rate_limits.five_hour.used_percentage')
