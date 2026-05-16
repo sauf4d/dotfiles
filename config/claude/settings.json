@@ -19,7 +19,6 @@
     ],
     "defaultMode": "auto"
   },
-  "model": "sonnet",
   "statusLine": {
     "type": "command",
     "command": "bash $HOME/.claude/statusline.sh"
@@ -56,10 +55,5 @@
       "autoUpdate": true
     }
   },
-  "effortLevel": "high",
-  "awaySummaryEnabled": false,
-  "preferredNotifChannel": "auto",
-  "inputNeededNotifEnabled": true,
-  "agentPushNotifEnabled": false,
-  "skipAutoPermissionPrompt": true
+  "agentPushNotifEnabled": false
 }

@@ -1528,6 +1528,95 @@ clean_dotfiles() {
 }
 
 # =============================================================================
+# Claude-clean — strip session-volatile keys from the synced settings.json so
+# `git status` stops showing churn from every /model, /effort, or UI toggle.
+#
+# Kept (real config that should sync across machines):
+#   permissions, hooks, enabledPlugins, extraKnownMarketplaces, statusLine,
+#   env, skillListingBudgetFraction
+#
+# Stripped (per-session preferences that flip while using the tool):
+#   model, effortLevel, awaySummaryEnabled, preferredNotifChannel,
+#   inputNeededNotifEnabled, skipAutoPermissionPrompt, feedbackSurveyState,
+#   lastOnboardingVersion, subscriptionNoticeCount, firstStartTime
+#
+# Dry-run by default; --force to apply. Requires jq.
+# =============================================================================
+claude_clean() {
+    local force=false
+    [[ "${1:-}" == "--force" ]] && force=true
+
+    local target="$DOTFILES_ROOT/config/claude/settings.json"
+
+    show_section "Claude clean"
+
+    if ! command -v jq >/dev/null 2>&1; then
+        _dotfiles_log_error "jq required but not installed"
+        _dotfiles_log_hint "install with: dotfiles config set profile full && dotfiles install"
+        return 1
+    fi
+    if [[ ! -f "$target" ]]; then
+        _dotfiles_log_error "settings.json not found: $target"
+        return 1
+    fi
+
+    # Noise keys to drop. Edit this list when new churn fields show up.
+    local -a noise=(
+        model effortLevel awaySummaryEnabled preferredNotifChannel
+        inputNeededNotifEnabled skipAutoPermissionPrompt
+        feedbackSurveyState lastOnboardingVersion subscriptionNoticeCount
+        firstStartTime
+    )
+
+    # Build the jq `del(...)` argument list once.
+    local del_args="" k
+    for k in "${noise[@]}"; do
+        [[ -n "$del_args" ]] && del_args+=", "
+        del_args+=".${k}"
+    done
+
+    local tmp
+    tmp="$(mktemp)" || { _dotfiles_log_error "mktemp failed"; return 1; }
+    if ! jq "del(${del_args})" "$target" > "$tmp"; then
+        rm -f "$tmp"
+        _dotfiles_log_error "jq filter failed"
+        return 1
+    fi
+
+    # Report which keys were actually present (only those count as drift).
+    local present=0 removed=()
+    for k in "${noise[@]}"; do
+        if jq -e "has(\"$k\")" "$target" >/dev/null 2>&1; then
+            removed+=("$k")
+            ((present++))
+        fi
+    done
+
+    if (( present == 0 )); then
+        _dotfiles_log_summary "Already clean — no volatile keys present."
+        rm -f "$tmp"
+        return 0
+    fi
+
+    if $force; then
+        if cmp -s "$tmp" "$target"; then
+            _dotfiles_log_summary "Already clean — nothing to write."
+            rm -f "$tmp"
+            return 0
+        fi
+        mv "$tmp" "$target"
+        _dotfiles_log_step "Stripped $present volatile key(s):"
+        for k in "${removed[@]}"; do _dotfiles_log_detail "$k"; done
+        _dotfiles_log_summary "Wrote $target"
+    else
+        _dotfiles_log_step "Would strip $present volatile key(s) (dry-run):"
+        for k in "${removed[@]}"; do _dotfiles_log_detail "$k"; done
+        _dotfiles_log_detail "Pass --force to apply."
+        rm -f "$tmp"
+    fi
+}
+
+# =============================================================================
 # Doctor — read-only diagnostics
 # =============================================================================
 # Reports health of: required tools, symlinks, package install status,
@@ -2088,6 +2177,7 @@ show_usage() {
     _help_cmd "config"    ""   "get/set/list/edit/path/keys configuration"
     _help_cmd "doctor"    "d"  "Read-only health check (badge grid + detail)"
     _help_cmd "clean"     "c"  "Remove orphaned symlinks (dry-run default)"
+    _help_cmd "claude-clean" "" "Strip session-volatile keys from claude settings.json"
     _help_cmd "link"      ""   "Refresh symlinks only (no package work)"
     _help_cmd "packages"  ""   "Install packages for current profile"
     _help_cmd "uninstall" ""   "Remove all symlinks, package configs, and repo"
@@ -2218,6 +2308,9 @@ parse_args() {
         clean|c|-c)
             clean_dotfiles "${2:-}"
             ;;
+        claude-clean)
+            claude_clean "${2:-}"
+            ;;
         doctor|d|-d)
             doctor_dotfiles
             ;;
@@ -2250,7 +2343,7 @@ parse_args() {
                 _dotfiles_log_error "Unknown command: $command"
                 local _sug
                 _sug="$(_dotfiles_did_you_mean "$command" \
-                    install update sync status config doctor clean \
+                    install update sync status config doctor clean claude-clean \
                     uninstall link profile packages version help \
                     2>/dev/null)"
                 [[ -n "$_sug" ]] && _dotfiles_log_hint "did you mean: dotfiles $_sug?"
