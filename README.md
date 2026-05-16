@@ -1,8 +1,17 @@
 # dotfiles
 
-A cross-platform, profile-based zsh configuration system for macOS and common Linux
-distributions. Shell startup stays under 200ms by deferring heavy work via sheldon and
-using idempotency guards to skip already-active initialization.
+One shell config that travels across macOS, Linux, and Windows. Each
+machine installs only the tools it actually needs. One command sets up
+a fresh box; one command keeps existing boxes in sync.
+
+- **Tools managed by mise** — same versions on every machine via one
+  `config/mise/config.toml`.
+- **Configs synced via symlinks** — edit a file in the repo, every
+  machine that pulls the commit picks it up immediately.
+- **Per-machine overrides** — pick a profile, exclude tools you don't
+  want, add tools you do — without forking the repo.
+- **Shell startup < 200ms** — heavy work deferred via sheldon's `zsh-defer`
+  + mise's lazy PATH activation.
 
 ---
 
@@ -10,177 +19,215 @@ using idempotency guards to skip already-active initialization.
 
 ### macOS / Linux
 
-One-liner — clones the repo, symlinks configs, and installs missing packages:
-
 ```bash
 curl -fsSL https://tinyurl.com/get-dotfiles | bash
 ```
 
-Or clone and run directly:
+That's it. Bootstraps git/zsh/curl if missing → clones the repo →
+opens an interactive picker for the profile/extras/excludes → runs the
+install → switches your default shell to zsh.
+
+**Skip the picker** with flags:
+
+```bash
+# Full dev workstation, default tools
+curl -fsSL https://tinyurl.com/get-dotfiles | bash -s -- --profile=dev
+
+# Thin server, no language SDKs
+curl -fsSL https://tinyurl.com/get-dotfiles | bash -s -- --profile=server
+
+# Custom: dev profile minus eza, plus htop and starship
+curl -fsSL https://tinyurl.com/get-dotfiles | bash -s -- \
+  --profile=dev --exclude=eza --extra=htop,starship
+```
+
+Or clone manually and run:
 
 ```bash
 git clone https://github.com/ved0el/dotfiles.git ~/.dotfiles
-~/.dotfiles/bin/dotfiles install
+~/.dotfiles/bin/dotfiles install --profile=dev
 ```
-
-When the one-liner finishes it prints a NEXT STEPS block — open a new terminal
-or run `exec zsh` from your current one.
 
 ### Windows
 
-Windows uses a separate, minimal entry point: a `Makefile` that handles
-**symlinks only**. Package installation is up to you (use `scoop`, `winget`,
-or installers of your choice).
-
-Prereqs (one-time):
-- **Git for Windows** — provides `git`, `bash`, and `make`. Install via
-  `scoop install git` or the official installer.
-- **Developer Mode on** — Settings → Privacy & security → For developers.
-  Lets non-admin shells create native symlinks; without it, `make link` fails
-  with a clear hint.
-
-Then:
-
 ```powershell
-git clone https://github.com/ved0el/dotfiles.git $HOME\.dotfiles
-cd $HOME\.dotfiles
-make link        # create / refresh symlinks
-make verify      # report OK / MISSING / STALE / CONFLICT
-make unlink      # remove only the symlinks we created
+iwr -useb https://tinyurl.com/get-dotfiles-win | iex
 ```
 
-Install the tools you actually want yourself, e.g.:
+Bootstraps scoop → installs git/mise → clones the repo → runs
+`mise install` for tools and `make link` for symlinks → injects shell
+integration into `$PROFILE`. Same tools, same versions as the Mac/Linux
+machines; uses PowerShell as the daily shell.
 
-```powershell
-scoop install bat fd ripgrep fzf zoxide eza jq sheldon vfox
-```
-
-The Makefile auto-discovers entries in `config/*` and skips macOS-only
-daemons (`skhd`, `yabai`). `config/claude/*` is symlinked file-by-file into
-`~/.claude/` to match the bash CLI's behavior.
+Requires PowerShell 7+ and Windows **Developer Mode on** (Settings →
+Privacy & security → For developers) so non-admin shells can create
+symlinks.
 
 ---
 
 ## Profiles
 
-Profiles are cumulative: `full` includes everything in `core`.
+A profile picks a baseline set of tools. Today three are defined:
 
-| Profile | Tools |
-|---------|-------|
-| `core`  | sheldon (plugin manager), tmux |
-| `full`  | everything in core + bat, eza, fd, fzf, jq, ripgrep, vfox, zoxide |
+| Profile | Includes | Best for |
+|---|---|---|
+| `core` | sheldon (zsh plugins), tmux, mise itself | Minimum bootstrap — almost never used directly |
+| `server` | Same as core | Thin VPS where you don't need language SDKs |
+| `dev` | core + node/go/python/bun + bat/eza/fd/fzf/jq/rg/zoxide | Full dev workstation |
 
-The active profile is stored in `~/.zshenv` and read by every zsh instance.
+Profiles are filesystem-derived — any directory under `zsh/packages/<name>/`
+is a valid profile. Make a new one by creating that directory.
 
-Valid profile names are derived from the filesystem — any directory under
-`zsh/packages/<name>/` is a valid profile. Add a new one with
-`mkdir zsh/packages/dev && touch zsh/packages/dev/foo.zsh`; no code changes
-needed.
-
-Switch profiles:
+Set the active profile:
 
 ```bash
-dotfiles config set profile full
-exec zsh
+dotfiles config set profile dev   # or server, or core
+dotfiles install                   # apply
 ```
 
-Legacy names `minimal` (→ `core`) and `server` (→ `full`) are accepted and
-auto-migrated on next save.
+### Per-machine tool overrides
+
+Don't want everything in your profile? Don't want to fork the repo?
+Use overrides — they live in `~/.zshenv` (per-machine, not synced):
+
+```bash
+dotfiles config set exclude eza,bat        # drop these from the install
+dotfiles config set extra htop,starship    # add these on top
+dotfiles install
+```
+
+The repo stays unchanged; your machine just installs the difference.
 
 ---
 
 ## CLI reference
 
-Run `dotfiles` with no arguments in an interactive terminal to open the menu —
-8 numbered options (install, sync, status, config, doctor, clean, uninstall,
-quit). Picking `config` opens a sub-screen with toggle actions for `verbose`,
-profile switches, and `$EDITOR ~/.zshenv`. Each option shows the resulting
-value before you press (`verbose true → false`).
+Run `dotfiles` with no arguments in an interactive terminal to open the
+menu. Or use subcommands directly:
 
 | Command | Short | Description |
-|---------|-------|-------------|
-| `install` | `i` | Symlink configs + install packages. Does not pull from git. On a fresh machine, clones the repo first. |
-| `update [--stash]` | `u` | `git pull --rebase`. Aborts on dirty tree unless `--stash` is passed. |
-| `sync [--stash]` | `s` | `update` then `install` in one step. |
-| `status` | `st` | Snapshot: profile, git state, symlink count, package count. Supports `--json`. |
-| `config <action>` | — | `get <key>` / `set <key> <val>` / `list` / `edit` / `path` / `keys`. Run `dotfiles config help` for details. |
-| `doctor` | `d` | Read-only health check (badge grid + per-package detail). Exit code = number of issues. |
-| `clean [--force]` | `c` | Report orphaned symlinks (dry-run). Pass `--force` to remove. |
-| `link` | — | Create or refresh symlinks only. |
-| `packages` | — | Install packages for the active profile only. |
-| `profile <name>` | — | Shorthand for `config set profile <name>`. |
-| `uninstall` | — | Remove all symlinks, packages, and the repo directory. Interactive prompt unless stdin is non-TTY. |
-| `version` | — | Print version info. |
-| `help` | `-h` | Print usage. |
+|---|---|---|
+| `install [--profile=…] [--exclude=…] [--extra=…]` | `i` | Install/refresh everything: symlinks, mise tools, shell integration. Idempotent — safe to re-run. |
+| `sync [--stash]` | `s` | `git pull --ff-only` + `install`. The everyday "give me what's new" command. |
+| `update [--stash]` | `u` | Just `git pull --rebase`, no install. |
+| `status` | `st` | Snapshot: profile, overrides, git state, symlink count, tool count. Supports `--json`. |
+| `config get/set/list/edit/path/keys` | — | Manage values in `~/.zshenv` managed block. `dotfiles config help` for details. |
+| `doctor` | `d` | Read-only health check. Reports tool sources (mise vs system) and exit code = number of issues. |
+| `clean [--force]` | `c` | Find orphaned symlinks (dry-run by default; `--force` to apply). |
+| `claude-clean [--force]` | — | Strip session-volatile keys from `config/claude/settings.json` so `git status` stays clean. |
+| `link` | — | Create/refresh symlinks only (no package work). |
+| `packages` | — | Install packages for the current profile only. |
+| `uninstall [--purge]` | — | Remove symlinks, mise tools, managed `~/.zshenv` block, repo dir. `--purge` also removes user data (zoxide db, etc.). |
+| `version` | — | Print version + source URL. |
+| `help` | `-h` | Show this help. |
 
-Global flags (may appear before *or* after the subcommand):
+Global flags (may appear before or after the subcommand):
 
 | Flag | Description |
-|------|-------------|
-| `-v`, `--verbose` | Enable verbose output (timestamped, scope-tagged debug lines). |
-| `-q`, `--quiet` | Suppress non-error output. Errors and warnings still print. |
+|---|---|
+| `-v`, `--verbose` | Verbose output (timestamped, scope-tagged debug). |
+| `-q`, `--quiet` | Suppress non-error output. |
 | `--json` | Machine-readable JSON output for `status` and `config list`. |
-| `--no-reload` | Skip `exec zsh` at the end of `install` / `update` / `sync`. |
+| `--no-reload` | Skip `exec zsh` at the end of `install`/`update`/`sync`. |
 | `--no-banner` | Skip the dotfiles banner (handy for scripts/CI). |
-| `-h`, `--help` | Show usage. |
 
 ---
 
-## Environment variables
+## Sync across machines
 
-These live in `~/.zshenv` and are written by `dotfiles install` / `dotfiles profile`.
-An env-passed value always wins over the saved default — the file uses
-`${VAR:-saved_value}` syntax so shell-level overrides work without editing the file.
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `DOTFILES_ROOT` | `~/.dotfiles` | Path to this repo. |
-| `DOTFILES_PROFILE` | `core` | Active profile (`core` or `full`). |
-| `DOTFILES_VERBOSE` | `false` | Verbose shell startup + CLI details when `true`. |
-
-Override for a single run without saving:
+Three steps after editing the repo on machine A:
 
 ```bash
-DOTFILES_VERBOSE=true dotfiles doctor
-DOTFILES_PROFILE=full dotfiles install
+# Machine A — push your change
+cd ~/.dotfiles
+git add config/mise/config.toml zsh/packages/dev/starship.zsh
+git commit -m "feat: add starship"
+git push
+
+# Machine B — pull and apply
+dotfiles sync   # = git pull --ff-only && dotfiles install
 ```
+
+Pure config-file edits (e.g. tweaking `config/bat/config`) take effect
+immediately after `git pull` — no install needed, because the file IS
+the symlink target.
+
+If you forget to sync, new shells will nudge you when the last fetch is
+more than 7 days old: `[dotfiles] last synced 14 days ago — run \`dotfiles sync\``.
 
 ---
 
-## Adding a tool
+## Add a new tool
 
-Create one file: `zsh/packages/<tier>/<toolname>.zsh`. The file declares hook
-functions and calls `init_package_template "$PKG_NAME"` at the end. No other file
-needs to change.
+Three cases:
 
-```zsh
-PKG_NAME="mytool"
-PKG_DESC="What it does"
+**Case A — just a binary you'll call directly** (htop, dust, dog):
 
-pkg_init() {
-    alias mt="mytool --flag"
-}
+1. Edit `config/mise/config.toml`, add `htop = "latest"`.
+2. `dotfiles install`.
+3. Commit + push.
 
-init_package_template "$PKG_NAME"
+**Case B — binary + shell integration** (starship, atuin, direnv):
+
+1. Edit `config/mise/config.toml`, add `starship = "latest"`.
+2. Create `zsh/packages/dev/starship.zsh`:
+   ```zsh
+   command -v starship &>/dev/null && eval "$(starship init zsh)"
+   ```
+3. (Windows parity) Create `pwsh/packages/dev/starship.ps1`:
+   ```powershell
+   if (Get-Command starship -EA SilentlyContinue) {
+       Invoke-Expression (&starship init powershell | Out-String)
+   }
+   ```
+4. `dotfiles install`. Commit + push.
+
+**Case C — tool needs custom install/uninstall logic mise can't express**
+(rare): write a full lifecycle package. See
+[docs/ARCHITECT.md](docs/ARCHITECT.md) "Package contract" + [CLAUDE.md](CLAUDE.md)
+for the 8-hook contract.
+
+---
+
+## Per-machine config tweaks
+
+Want a different bat theme on your laptop vs server? Prefer env vars:
+
+```bash
+dotfiles config set env BAT_THEME OneHalfLight
 ```
 
-See [ARCHITECT.md](ARCHITECT.md) for the full 8-hook contract and a complete annotated
-example.
+This writes `export BAT_THEME=OneHalfLight` into the dotfiles-managed
+block of `~/.zshenv`. The repo's `config/bat/config` stays untouched and
+keeps syncing across machines; this one machine's bat now uses the
+override. Same pattern works for any tool that respects env vars.
+
+For tools without env-var overrides, drop a sibling file like
+`~/.config/<tool>/local.conf` and source it from the main config.
 
 ---
 
 ## Troubleshooting
 
-Run `dotfiles doctor` first. It checks required tools, repo state, symlink integrity,
-mise leftovers, and per-package health.
+Run `dotfiles doctor` first. It checks required tools, repo state,
+symlinks, mise installs, and per-tool source (mise vs system).
 
 | Symptom | Fix |
-|---------|-----|
-| Required tool missing (`git`, `curl`, `zsh` not in PATH) | Install via system package manager, then `dotfiles install`. |
-| Orphaned symlinks | `dotfiles clean` (dry-run shows what), then `dotfiles clean --force`. |
-| `mise` leftovers (`~/.local/share/mise`, `~/.config/mise`) | `dotfiles clean --force` — vfox's `pkg_clean` hook removes them. |
+|---|---|
+| Required tool missing (`git`, `curl`, `zsh`) | Install via system package manager, then `dotfiles install`. |
+| Orphaned symlinks | `dotfiles clean` (dry-run), then `dotfiles clean --force`. |
+| `mise` leftover after uninstalling vfox | `dotfiles clean --force` — mise's `pkg_clean` removes them. |
+| "wrong fzf wins on PATH" | `dotfiles doctor` shows tool source; if apt/brew copies are interfering, uninstall them (`sudo apt remove fzf`) and re-run `dotfiles install`. |
+| Half-finished install (network died, Ctrl+C) | Just re-run `dotfiles install`. Idempotent by design. |
+| Need a clean reset | `dotfiles clean --force && dotfiles install`. |
+| Pristine wipe | `dotfiles uninstall` (interactive prompt). Pass `--purge` to also remove user data (zoxide db, etc.). |
 
 ---
 
-See [CLAUDE.md](CLAUDE.md) for contributor and AI-agent guidance.
-See [ARCHITECT.md](ARCHITECT.md) for architecture and package contract details.
+## Docs
+
+- [docs/USECASES.md](docs/USECASES.md) — the 18 use cases the system
+  must support. The contract.
+- [docs/ARCHITECT.md](docs/ARCHITECT.md) — architecture, decision
+  rationale, implementation status.
+- [CLAUDE.md](CLAUDE.md) — developer / AI-agent conventions.
