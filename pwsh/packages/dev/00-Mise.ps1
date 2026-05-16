@@ -154,8 +154,31 @@ function Initialize-DotfilesMise {
     }
 
     if (Test-MisePresent) {
-        # mise activate emits an Invoke-Expression-friendly script for pwsh.
-        Invoke-Expression (& mise activate pwsh | Out-String)
+        # mise's pwsh integration is named differently across versions: newer
+        # accepts `mise activate pwsh`; older only accepts `powershell`. Try
+        # both, then sanity-check the output before eval'ing it — if mise
+        # falls back to bash output, it contains `<<EOF` heredoc syntax that
+        # PowerShell's parser rejects ("'<' operator is reserved").
+        $activate = $null
+        foreach ($shellName in @('pwsh','powershell')) {
+            try { $activate = (& mise activate $shellName 2>$null | Out-String) }
+            catch { Write-DotfilesDebug "mise activate $shellName threw: $_" }
+            if ($activate -and $activate.Trim() -and $activate -notmatch '<<' -and $activate -notmatch '\bfunction\s+\w+\s*\(\)\s*\{') {
+                break
+            }
+            $activate = $null
+        }
+        if ($activate) {
+            try {
+                Invoke-Expression $activate
+            } catch {
+                Write-DotfilesWarning "mise activate output failed to evaluate: $($_.Exception.Message)"
+                Write-DotfilesHint  "Manually verify with: mise activate pwsh"
+            }
+        } else {
+            Write-DotfilesWarning "mise activate didn't produce usable pwsh output — tools may not be on PATH"
+            Write-DotfilesHint  "Check mise version (mise --version) and re-run; or activate manually"
+        }
 
         if ($env:DOTFILES_INSTALL -eq 'true') {
             Invoke-DotfilesMiseInstall | Out-Null
