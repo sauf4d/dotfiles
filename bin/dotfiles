@@ -1425,10 +1425,16 @@ install_dotfiles() {
         }
     fi
 
-    # UC-18: friendly menu when the user didn't pass flags AND a TTY is
-    # reachable (works under `curl | bash` because we read from /dev/tty,
-    # not stdin). Skipped silently in CI / scripts / when flags are given.
-    if [[ "${_DOTFILES_INSTALL_FLAGS_PROVIDED:-false}" != "true" ]] \
+    # UC-18: interactive menu is OPT-IN (not default). Daily `dotfiles install`
+    # runs silently with whatever's saved in ~/.zshenv. Fire the menu only
+    # when explicitly requested:
+    #   --menu              flag on this run
+    #   DOTFILES_MENU=true  env override (persistable via `dotfiles config set menu true`)
+    # Still requires a usable TTY (works under `curl | bash` via /dev/tty).
+    local _menu_requested=false
+    [[ "${_DOTFILES_INSTALL_MENU:-false}" == "true" ]] && _menu_requested=true
+    [[ "${DOTFILES_MENU:-false}"          == "true" ]] && _menu_requested=true
+    if $_menu_requested \
         && [[ "${DOTFILES_QUIET:-false}" != "true" ]] \
         && [[ -r /dev/tty ]] && [[ -w /dev/tty ]]; then
         _install_interactive_menu || {
@@ -2436,6 +2442,7 @@ parse_args() {
             --extra=*)      export DOTFILES_EXTRA="${arg#--extra=}"
                             export _DOTFILES_INSTALL_FLAGS_PROVIDED=true ;;
             -y|--yes)       export _DOTFILES_INSTALL_FLAGS_PROVIDED=true ;;
+            --menu)         export _DOTFILES_INSTALL_MENU=true ;;
             *)              positional+=("$arg") ;;
         esac
     done

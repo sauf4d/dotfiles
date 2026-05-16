@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# =============================================================================
+# .githooks/pre-commit — guard against committing session-volatile drift.
+#
+# Today this only guards config/claude/settings.json (the file flips every
+# time you /model, /effort, approve a permission, or toggle a UI option).
+# Add more paths below as new drift sources show up.
+#
+# Bypass for an intentional commit:
+#   DOTFILES_ALLOW_SETTINGS_DRIFT=1 git commit -m "…"
+#   git commit --no-verify -m "…"
+#
+# Setup (one-time per clone):
+#   git -C ~/.dotfiles config core.hooksPath .githooks
+# =============================================================================
+set -euo pipefail
+
+# Files to block by default — relative to repo root.
+DRIFT_PATHS=(
+    "config/claude/settings.json"
+)
+
+staged="$(git diff --cached --name-only)"
+
+for p in "${DRIFT_PATHS[@]}"; do
+    if printf '%s\n' "$staged" | grep -qxF "$p"; then
+        if [[ "${DOTFILES_ALLOW_SETTINGS_DRIFT:-0}" != "1" ]]; then
+            printf '\033[1;31m✗ pre-commit blocked: %s is staged\033[0m\n' "$p" >&2
+            echo "" >&2
+            echo "  This file accumulates session-volatile keys (model, effort, " >&2
+            echo "  notification toggles, etc.) that flip on every CLI interaction." >&2
+            echo "  Committing it pollutes the diff history." >&2
+            echo "" >&2
+            echo "  Recover:" >&2
+            echo "    dotfiles claude-clean --force          # strip volatile keys" >&2
+            echo "    git reset HEAD '$p'                    # unstage" >&2
+            echo "" >&2
+            echo "  Or commit anyway (rare — only when settings.json has real config):" >&2
+            echo "    DOTFILES_ALLOW_SETTINGS_DRIFT=1 git commit ..." >&2
+            echo "    git commit --no-verify ..." >&2
+            exit 1
+        fi
+    fi
+done
+
+exit 0

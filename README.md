@@ -23,11 +23,17 @@ a fresh box; one command keeps existing boxes in sync.
 curl -fsSL https://tinyurl.com/get-dotfiles | bash
 ```
 
-That's it. Bootstraps git/zsh/curl if missing → clones the repo →
-opens an interactive picker for the profile/extras/excludes → runs the
-install → switches your default shell to zsh.
+That's it. Bootstraps git/zsh/curl if missing → clones the repo → runs
+the install (using sensible defaults silently) → switches your default
+shell to zsh.
 
-**Skip the picker** with flags:
+**Want to be asked instead** — pass `--menu` (UC-18, opt-in picker):
+
+```bash
+curl -fsSL https://tinyurl.com/get-dotfiles | bash -s -- --menu
+```
+
+**Skip defaults and pick exactly** with flags:
 
 ```bash
 # Full dev workstation, default tools
@@ -236,6 +242,30 @@ symlinks, mise installs, and per-tool source (mise vs system).
 | Half-finished install (network died, Ctrl+C) | Just re-run `dotfiles install`. Idempotent by design. |
 | Need a clean reset | `dotfiles clean --force && dotfiles install`. |
 | Pristine wipe | `dotfiles uninstall` (interactive prompt). Pass `--purge` to also remove user data (zoxide db, etc.). |
+
+---
+
+## Contributing — pre-commit hook
+
+The repo ships a guard at `.githooks/pre-commit` that blocks accidentally
+committing `config/claude/settings.json` (it churns on every `/model`,
+`/effort`, permission approval, etc.). Enable once per clone:
+
+```bash
+git -C ~/.dotfiles config core.hooksPath .githooks
+```
+
+Bypass for an intentional commit:
+
+```bash
+DOTFILES_ALLOW_SETTINGS_DRIFT=1 git commit -m "real settings change"
+# or
+git commit --no-verify -m "…"
+```
+
+If you intentionally want to commit settings, run `dotfiles claude-clean
+--force` first to strip session-volatile keys, leaving only meaningful
+config (plugins, marketplaces, permissions, statusline).
 
 ---
 

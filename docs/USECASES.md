@@ -99,37 +99,47 @@ Or after install: `dotfiles config set exclude eza` and rerun
 `dotfiles install`.
 **They get**: Exactly the listed tools, no more, no less.
 
-### UC-18: Forgot the flags — get an interactive menu
+### UC-18: Choose options interactively (opt-in menu)
 
-**Who/when**: Pasted the one-liner without `--profile=…` (typical for
-non-tech users, or just because flags are easy to forget).
-**They want**: Be asked instead of silently getting a default they
-didn't pick.
-**They do**:
+**Who/when**: First install on a fresh machine and they want to be walked
+through profile/extras/excludes instead of typing flags. Or later, when
+they want to change profile/overrides without remembering exact `config
+set` syntax.
+**They want**: Be asked, not asked-every-time. The menu is OPT-IN — daily
+`dotfiles install` runs are silent and use saved config.
+**They do** — flag form on the bootstrap:
 ```bash
-curl -fsSL https://tinyurl.com/get-dotfiles | bash
+curl -fsSL https://tinyurl.com/get-dotfiles | bash -s -- --menu
 ```
-(no flags).
-**They get**: After repo clone, an interactive menu appears:
+Or on a checked-out repo:
+```bash
+dotfiles install --menu
+```
+**They get**: After repo clone, an interactive picker appears:
 ```
   DOTFILES SETUP — pick what to install
 
-  ▸ Profile:   [ core ] [ server ] [ dev ]
-  ▸ Add:       (comma-separated tools, optional)
-  ▸ Exclude:   (comma-separated tools, optional)
+  Profile   (current: dev)
+    1)   core
+    2) * dev
+    3)   server
 
-  [ install ]   [ defaults & install ]   [ cancel ]
+  Extra tools   (comma-separated, optional)
+  Exclude tools (comma-separated, optional)
+
+    [ENTER] confirm   [d] defaults   [q] cancel
 ```
-Arrow keys to pick, Enter to confirm. `defaults & install` skips the
-menu — sensible defaults for the detected OS. Same menu surfaces from
-`dotfiles install` later (with no args) for changing your mind.
-**Behind the scenes**: The bootstrap detects flags vs. no-flags. When
-flags are absent AND a TTY is available (via `</dev/tty` even when
-stdin is a curl pipe), it spawns the menu. When piped non-interactively
-(CI, scripts), defaults silently.
+Choices persist to `~/.zshenv` so subsequent runs use them without re-asking.
+**Behind the scenes**: Menu fires only when `--menu` flag is passed OR
+`DOTFILES_MENU=true` is set (persistable via `dotfiles config set menu true`).
+Default behavior: silent install using saved config. Skipped automatically
+in CI / non-TTY / `--quiet`.
 
+> The menu was previously default-on; that proved noisy for daily use. Now
+> it's an explicit opt-in so re-running install doesn't re-prompt every time.
+>
 > Flag form (`--profile=dev --exclude=eza --extra=htop`) is ALWAYS
-> respected when present. Menu is the fallback, not an override.
+> respected when present and skips the menu regardless.
 
 ---
 
