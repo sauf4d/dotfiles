@@ -26,6 +26,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Force UTF-8 console encoding so emoji/box-drawing in log helpers render
+# correctly in Windows Terminal (pwsh defaults to ANSI otherwise). Idempotent.
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $OutputEncoding            = [System.Text.Encoding]::UTF8
+} catch { }
+
 # ── Resolve repo root + load libs ────────────────────────────────────────────
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $DotfilesRoot = if ($env:DOTFILES_ROOT) { $env:DOTFILES_ROOT } else { Split-Path -Parent $ScriptDir }

@@ -19,6 +19,13 @@
 
 $ErrorActionPreference = 'Stop'
 
+# Force UTF-8 console encoding so emoji/box-drawing characters render in
+# Windows Terminal. pwsh defaults to ANSI on Windows which turns them into '?'.
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $OutputEncoding            = [System.Text.Encoding]::UTF8
+} catch { }
+
 function _say  { param($m) Write-Host "→ $m" -ForegroundColor Cyan }
 function _ok   { param($m) Write-Host "✓ $m" -ForegroundColor Green }
 function _warn { param($m) Write-Host "⚠  $m" -ForegroundColor Yellow }

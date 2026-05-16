@@ -15,6 +15,14 @@
 # This loader uses `. ` (dot-source) for all package files.
 # =============================================================================
 
+# ── UTF-8 console encoding ──────────────────────────────────────────────────
+# Without this, pwsh emits ANSI-encoded bytes for non-ASCII glyphs (emoji,
+# box-drawing) and Windows Terminal renders them as `?`. Idempotent.
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $OutputEncoding            = [System.Text.Encoding]::UTF8
+} catch { }
+
 # ── Bootstrap defaults ───────────────────────────────────────────────────────
 if (-not $env:DOTFILES_ROOT) {
     $home_dir = if ($IsWindows) { $env:USERPROFILE } else { $env:HOME }
