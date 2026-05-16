@@ -125,7 +125,7 @@ function Invoke-Install {
 
     # 3. Write the $PROFILE managed block.
     Save-DotfilesConfig
-    Write-DotfilesSummary "Dotfiles installed — open a new pwsh tab or run `. `$PROFILE`"
+    Write-DotfilesSummary 'Dotfiles installed — open a new pwsh tab or run `. $PROFILE`'
     $env:DOTFILES_INSTALL = $null
     return 0
 }
