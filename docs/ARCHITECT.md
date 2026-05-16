@@ -453,13 +453,13 @@ stands on.
 | Symlink engine | ✓ Shipped | `link_directory_files` walks `config/*` |
 | `~/.zshenv` marker-block config | ✓ Shipped | `dotfiles config set <key> <value>` |
 | Two-tier logging | ✓ Shipped | `zsh/lib/log.sh` |
-| Doctor (basic) | ✓ Shipped | Per-package; missing provenance reporting |
+| Doctor (basic) | ✓ Shipped | Per-package; provenance reporting in `pkg_doctor` |
 | Makefile Windows symlinks | ✓ Shipped | `make link/unlink/verify` |
-| `core / server / dev` profile rename + split | ○ Planned | Migrate `full/` → `dev/`; create empty `server/` |
-| `DOTFILES_EXCLUDE` / `DOTFILES_EXTRA` overrides | ○ Planned | Wire into install flow + `config set` subcommand |
-| Interactive install menu (UC-18) | ○ Planned | Today's `dotfiles` menu fires from `dotfiles` no-args, not install one-liner |
-| Doctor provenance reporting (UC-12) | ○ Planned | Show binary source per tool |
-| Stale-sync nudge (UC-10) | ○ Planned | One-line check at shell startup |
+| `core / server / dev` profile rename + split | ✓ Shipped | `full/` → `dev/`; empty `server/` directory; legacy `full` alias warns + migrates |
+| `DOTFILES_EXCLUDE` / `DOTFILES_EXTRA` overrides | ✓ Shipped | `dotfiles config set exclude/extra <csv>`; mise applies per-tool at install time |
+| Interactive install menu (UC-18) | ✓ Shipped | `dotfiles install` (no flags) on a TTY → profile/extra/exclude picker; `</dev/tty` works under `curl \| bash` |
+| Doctor provenance reporting (UC-12) | ✓ Shipped | `pkg_doctor` walks `mise current` and labels each tool's source (mise/brew/apt/dnf/user/unknown) |
+| Stale-sync nudge (UC-10) | ✓ Shipped | `zsh/core/70-sync-nudge.zsh` — local stat on `.git/FETCH_HEAD`, no network |
 | Windows pwsh tree (`pwsh/packages/`) | ○ Planned | `00-mise.ps1` + `01-mise-tools.ps1` |
 | Windows one-liner (`iwr … \| iex`) | ○ Planned | Bootstrap script + `tinyurl.com/get-dotfiles-win` |
 | `bin/dotfiles.ps1` | ○ Planned | install/sync/doctor parity with bash CLI |

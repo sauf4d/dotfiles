@@ -17,6 +17,8 @@ set -euo pipefail
 readonly DEFAULT_ROOT="$HOME/.dotfiles"
 readonly DEFAULT_PROFILE="core"
 readonly DEFAULT_VERBOSE="false"
+readonly DEFAULT_EXCLUDE=""
+readonly DEFAULT_EXTRA=""
 readonly SCRIPT_NAME="dotfiles"
 
 # URLs - Easy to update
@@ -139,7 +141,8 @@ is_quiet() {
 # =============================================================================
 # `core` is always implicit. Any other profile is valid iff
 # $DOTFILES_ROOT/zsh/packages/<name>/ exists.
-# Legacy: `minimal` → `core`, `server` → `full` (migrated by set_defaults).
+# Legacy aliases (NFR-D — kept for at least one major version):
+#   `minimal` → `core`, `full` → `dev`. Migrated by set_defaults.
 # -----------------------------------------------------------------------------
 
 # List valid profile names (one per line).
@@ -222,12 +225,18 @@ set_defaults() {
     export DOTFILES_ROOT="${DOTFILES_ROOT:-$DEFAULT_ROOT}"
     export DOTFILES_PROFILE="${DOTFILES_PROFILE:-$DEFAULT_PROFILE}"
     export DOTFILES_VERBOSE="${DOTFILES_VERBOSE:-$DEFAULT_VERBOSE}"
+    export DOTFILES_EXCLUDE="${DOTFILES_EXCLUDE:-$DEFAULT_EXCLUDE}"
+    export DOTFILES_EXTRA="${DOTFILES_EXTRA:-$DEFAULT_EXTRA}"
 
     # One-time profile-name migration (legacy → new). save_config persists.
+    # NFR-D: legacy aliases keep working for at least one major version.
+    #   minimal  → core   (old "thin" profile renamed)
+    #   full     → dev    (full split into server/dev; full now points to dev)
+    # NOTE: `server` is now a REAL (empty) profile — not a legacy alias.
     local _migrated_profile=""
     case "${DOTFILES_PROFILE:-}" in
         minimal) _migrated_profile="core" ;;
-        server)  _migrated_profile="full" ;;
+        full)    _migrated_profile="dev" ;;
     esac
     if [[ -n "$_migrated_profile" ]]; then
         _dotfiles_log_warning "DOTFILES_PROFILE '${DOTFILES_PROFILE}' migrated to '${_migrated_profile}' — saved to ${CONFIG_FILE}"
@@ -252,6 +261,13 @@ load_config() {
     if value=$(extract_config_value "DOTFILES_VERBOSE" "$CONFIG_FILE" 2>/dev/null || true); then
         [[ -n "$value" ]] && export DOTFILES_VERBOSE="$value"
     fi
+    # exclude/extra are per-machine overrides (UC-7). Allow empty values
+    # to round-trip: an explicit "" in the file means "no override active".
+    # Use file-read directly since extract_config_value gates on non-empty.
+    value="$(_config_read_file DOTFILES_EXCLUDE)"
+    export DOTFILES_EXCLUDE="$value"
+    value="$(_config_read_file DOTFILES_EXTRA)"
+    export DOTFILES_EXTRA="$value"
 }
 
 # Render the managed block (with BEGIN/END markers). Values are written using
@@ -261,11 +277,15 @@ _render_managed_block() {
     local _root="${DOTFILES_ROOT:-$DEFAULT_ROOT}"
     local _profile="${DOTFILES_PROFILE:-$DEFAULT_PROFILE}"
     local _verbose="${DOTFILES_VERBOSE:-$DEFAULT_VERBOSE}"
+    local _exclude="${DOTFILES_EXCLUDE:-$DEFAULT_EXCLUDE}"
+    local _extra="${DOTFILES_EXTRA:-$DEFAULT_EXTRA}"
     cat << EOF
 # DOTFILES MANAGED BEGIN — do not edit between markers; use \`dotfiles config set\`
 export DOTFILES_ROOT="\${DOTFILES_ROOT:-$_root}"
 export DOTFILES_PROFILE="\${DOTFILES_PROFILE:-$_profile}"
 export DOTFILES_VERBOSE="\${DOTFILES_VERBOSE:-$_verbose}"
+export DOTFILES_EXCLUDE="\${DOTFILES_EXCLUDE:-$_exclude}"
+export DOTFILES_EXTRA="\${DOTFILES_EXTRA:-$_extra}"
 # DOTFILES MANAGED END
 EOF
 }
@@ -720,7 +740,7 @@ verify_packages() {
 
             typeset -a pkg_dirs
             pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core")
-            [[ "$DOTFILES_PROFILE" != "core" && "$DOTFILES_PROFILE" != "minimal" \
+            [[ "$DOTFILES_PROFILE" != "core" \
                && -d "$DOTFILES_ROOT/zsh/packages/$DOTFILES_PROFILE" ]] && \
                 pkg_dirs+=("$DOTFILES_ROOT/zsh/packages/$DOTFILES_PROFILE")
 
@@ -837,7 +857,7 @@ configure_profile() {
 # `dotfiles config` — get/set/list/edit/path/keys for ~/.zshenv
 # =============================================================================
 # Single source of truth for valid keys (kept tiny on purpose).
-readonly CONFIG_KEYS=(profile verbose root)
+readonly CONFIG_KEYS=(profile verbose root exclude extra)
 
 config_show_usage() {
     cat <<EOF
@@ -850,14 +870,18 @@ USAGE:
   dotfiles config keys               List valid keys (one per line)
 
 KEYS:
-  profile   core | full
+  profile   core | server | dev
   verbose   true | false
+  exclude   comma-separated tools to drop from the active profile
+  extra     comma-separated tools to add on top of the active profile
   root      absolute path to dotfiles repo
 
 EXAMPLES:
   dotfiles config set verbose true
-  dotfiles config set profile core
-  dotfiles config get profile        # prints to stdout (machine-readable)
+  dotfiles config set profile dev
+  dotfiles config set exclude eza,bat       # skip these on this machine
+  dotfiles config set extra htop,starship   # add these on this machine
+  dotfiles config get profile               # prints to stdout (machine-readable)
 EOF
 }
 
@@ -890,6 +914,8 @@ _config_key_lookup() {
         profile) printf '%s\n%s\n' "DOTFILES_PROFILE" "$DEFAULT_PROFILE" ;;
         verbose) printf '%s\n%s\n' "DOTFILES_VERBOSE" "$DEFAULT_VERBOSE" ;;
         root)    printf '%s\n%s\n' "DOTFILES_ROOT"    "$DEFAULT_ROOT" ;;
+        exclude) printf '%s\n%s\n' "DOTFILES_EXCLUDE" "$DEFAULT_EXCLUDE" ;;
+        extra)   printf '%s\n%s\n' "DOTFILES_EXTRA"   "$DEFAULT_EXTRA" ;;
         *)       return 1 ;;
     esac
 }
@@ -899,7 +925,11 @@ _config_saved_value() {
     local lookup
     lookup="$(_config_key_lookup "$1")" || return 1
     local var_name="${lookup%%$'\n'*}"
-    local default="${lookup#*$'\n'}"
+    # Command substitution strips trailing newlines — if the default is "",
+    # the substring after the first newline collapses, so $lookup ends up
+    # without a separator. Guard explicitly so default stays empty.
+    local default=""
+    [[ "$lookup" == *$'\n'* ]] && default="${lookup#*$'\n'}"
     local value
     value="$(_config_read_file "$var_name")"
     [[ -z "$value" ]] && value="$default"
@@ -910,10 +940,12 @@ config_list() {
     if [[ "${DOTFILES_OUTPUT_FORMAT:-}" == "json" ]]; then
         local v
         v="$(_config_saved_value verbose)"
-        printf '{"profile":"%s","verbose":%s,"root":"%s","file":"%s"}\n' \
+        printf '{"profile":"%s","verbose":%s,"root":"%s","exclude":"%s","extra":"%s","file":"%s"}\n' \
             "$(_config_saved_value profile)" \
             "${v:-false}" \
             "$(_config_saved_value root)" \
+            "$(_config_saved_value exclude)" \
+            "$(_config_saved_value extra)" \
             "$CONFIG_FILE"
         return 0
     fi
@@ -921,6 +953,8 @@ config_list() {
     _dotfiles_table \
         "profile" "$(_config_saved_value profile)" \
         "verbose" "$(_config_saved_value verbose)" \
+        "exclude" "$(_config_saved_value exclude)" \
+        "extra"   "$(_config_saved_value extra)" \
         "root"    "$(_config_saved_value root)" \
         "file"    "$CONFIG_FILE"
 }
@@ -932,7 +966,7 @@ config_get() {
             _dotfiles_log_error "Key required (one of: ${CONFIG_KEYS[*]})"
             _dotfiles_log_hint "example: dotfiles config get profile"
             return 1 ;;
-        profile|verbose|root) _config_saved_value "$key" ;;
+        profile|verbose|root|exclude|extra) _config_saved_value "$key" ;;
         *)
             _dotfiles_log_error "Unknown key: $key (valid: ${CONFIG_KEYS[*]})"
             local _sug
@@ -944,10 +978,16 @@ config_get() {
 
 config_set() {
     local key="${1:-}" value="${2:-}"
-    [[ -z "$key" || -z "$value" ]] && {
+    [[ -z "$key" ]] && {
         _dotfiles_log_error "Usage: dotfiles config set <key> <value>"
         return 1
     }
+    # Allow empty value only for exclude/extra (means "clear the override").
+    # Other keys reject empty because they'd leave the user in an invalid state.
+    if [[ -z "$value" && "$key" != "exclude" && "$key" != "extra" ]]; then
+        _dotfiles_log_error "Empty value not allowed for '$key' (use 'exclude' or 'extra' to clear overrides)"
+        return 1
+    fi
     case "$key" in
         profile)
             validate_profile "$value" || return 1
@@ -968,6 +1008,18 @@ config_set() {
             # Resolve to absolute path
             value="$(cd "$value" && pwd -P)"
             export DOTFILES_ROOT="$value"
+            ;;
+        exclude|extra)
+            # Comma-separated tool names. Allow empty (clears the override).
+            # Normalize whitespace inside comma-list so "eza, bat" → "eza,bat".
+            local _normalized
+            _normalized="$(printf '%s' "$value" | tr -d '[:space:]')"
+            if [[ "$key" == "exclude" ]]; then
+                export DOTFILES_EXCLUDE="$_normalized"
+            else
+                export DOTFILES_EXTRA="$_normalized"
+            fi
+            value="$_normalized"   # so the summary line shows what was saved
             ;;
         *)
             _dotfiles_log_error "Unknown key: $key (valid: ${CONFIG_KEYS[*]})"
@@ -1270,6 +1322,85 @@ _install_handle_reload() {
     exec zsh
 }
 
+# Interactive install menu (UC-18) — pick profile + overrides when the user
+# pasted the install one-liner without flags. Uses </dev/tty so it works
+# under `curl … | bash` where stdin is the pipe. Returns 1 if the user
+# cancels, 0 otherwise (after setting + persisting the chosen values).
+_install_interactive_menu() {
+    # Available profiles from the filesystem (filtered to non-empty + core).
+    local -a profiles
+    profiles=()
+    local _p
+    for _p in $(list_valid_profiles); do profiles+=("$_p"); done
+    local default_profile="${DOTFILES_PROFILE:-$DEFAULT_PROFILE}"
+    local default_exclude="${DOTFILES_EXCLUDE:-}"
+    local default_extra="${DOTFILES_EXTRA:-}"
+
+    {
+        printf '\n%bDOTFILES SETUP%b — pick what to install\n\n' "$BOLD$CYAN" "$RESET"
+        printf '  %bProfile%b   (current: %s)\n' "$BOLD" "$RESET" "$default_profile"
+        local _i=1
+        for _p in "${profiles[@]}"; do
+            local _marker="  "
+            [[ "$_p" == "$default_profile" ]] && _marker="${GREEN}*${RESET} "
+            printf '    %b%d)%b %s%s\n' "$BOLD" "$_i" "$RESET" "$_marker" "$_p"
+            ((_i++))
+        done
+        printf '\n'
+        printf '  %bExtra tools%b   (comma-separated, optional)\n' "$BOLD" "$RESET"
+        printf '  %bExclude tools%b (comma-separated, optional)\n' "$BOLD" "$RESET"
+        printf '\n'
+        printf '    %b[ENTER]%b confirm   %b[d]%b defaults   %b[q]%b cancel\n\n' \
+            "$BOLD$GREEN" "$RESET" "$BOLD$YELLOW" "$RESET" "$BOLD$RED" "$RESET"
+    } > /dev/tty
+
+    local choice extra exclude
+    # Profile picker
+    printf '%bProfile [%s]:%b ' "$BOLD" "$default_profile" "$RESET" > /dev/tty
+    IFS= read -r choice < /dev/tty || { echo > /dev/tty; return 1; }
+    case "$choice" in
+        q|Q) printf '%bcancelled%b\n' "$YELLOW" "$RESET" > /dev/tty; return 1 ;;
+        d|D) ;;   # defaults — keep current values, no further prompts
+        '')  ;;   # empty — keep default
+        [0-9]*)
+            if (( choice >= 1 && choice <= ${#profiles[@]} )); then
+                export DOTFILES_PROFILE="${profiles[$((choice-1))]}"
+            else
+                printf '%binvalid choice, using default%b\n' "$YELLOW" "$RESET" > /dev/tty
+            fi
+            ;;
+        *)
+            # Allow typing the profile name directly.
+            local _ok=false
+            for _p in "${profiles[@]}"; do
+                [[ "$_p" == "$choice" ]] && { export DOTFILES_PROFILE="$_p"; _ok=true; break; }
+            done
+            $_ok || printf '%bunknown profile "%s", using default%b\n' "$YELLOW" "$choice" "$RESET" > /dev/tty
+            ;;
+    esac
+
+    # Skip extras/excludes prompts if 'd' (defaults).
+    if [[ "$choice" != "d" && "$choice" != "D" ]]; then
+        printf '%bExtra tools [%s]:%b '   "$BOLD" "$default_extra"   "$RESET" > /dev/tty
+        IFS= read -r extra   < /dev/tty || extra=""
+        [[ -n "$extra" ]]   && export DOTFILES_EXTRA="$(printf '%s' "$extra"   | tr -d '[:space:]')"
+
+        printf '%bExclude tools [%s]:%b ' "$BOLD" "$default_exclude" "$RESET" > /dev/tty
+        IFS= read -r exclude < /dev/tty || exclude=""
+        [[ -n "$exclude" ]] && export DOTFILES_EXCLUDE="$(printf '%s' "$exclude" | tr -d '[:space:]')"
+    fi
+
+    save_config
+    {
+        printf '\n%bUsing:%b profile=%s extra=%s exclude=%s\n\n' \
+            "$BOLD$GREEN" "$RESET" \
+            "${DOTFILES_PROFILE:-$DEFAULT_PROFILE}" \
+            "${DOTFILES_EXTRA:-(none)}" \
+            "${DOTFILES_EXCLUDE:-(none)}"
+    } > /dev/tty
+    return 0
+}
+
 install_dotfiles() {
     # Mode detection: curl-pipe = no .git AND no TTY stdin. Everything else
     # is local (script invoked on a checked-out repo or rerun after install).
@@ -1286,6 +1417,18 @@ install_dotfiles() {
             _dotfiles_log_error "Repository setup failed"
             _dotfiles_log_hint "check network reachability or set DOTFILES_REPO=<url>"
             return 1
+        }
+    fi
+
+    # UC-18: friendly menu when the user didn't pass flags AND a TTY is
+    # reachable (works under `curl | bash` because we read from /dev/tty,
+    # not stdin). Skipped silently in CI / scripts / when flags are given.
+    if [[ "${_DOTFILES_INSTALL_FLAGS_PROVIDED:-false}" != "true" ]] \
+        && [[ "${DOTFILES_QUIET:-false}" != "true" ]] \
+        && [[ -r /dev/tty ]] && [[ -w /dev/tty ]]; then
+        _install_interactive_menu || {
+            _dotfiles_log_warning "install cancelled by user"
+            return 0
         }
     fi
 
@@ -2276,6 +2419,16 @@ parse_args() {
             --no-banner)    export DOTFILES_NO_BANNER="true" ;;
             --json)         export DOTFILES_OUTPUT_FORMAT="json" ;;
             --version)      show_version; exit 0 ;;
+            # Install-time flags: profile + per-machine overrides (UC-4/UC-7).
+            # Setting any of these marks the install as "user-specified" so the
+            # interactive menu (UC-18) doesn't fire later.
+            --profile=*)    export DOTFILES_PROFILE="${arg#--profile=}"
+                            export _DOTFILES_INSTALL_FLAGS_PROVIDED=true ;;
+            --exclude=*)    export DOTFILES_EXCLUDE="${arg#--exclude=}"
+                            export _DOTFILES_INSTALL_FLAGS_PROVIDED=true ;;
+            --extra=*)      export DOTFILES_EXTRA="${arg#--extra=}"
+                            export _DOTFILES_INSTALL_FLAGS_PROVIDED=true ;;
+            -y|--yes)       export _DOTFILES_INSTALL_FLAGS_PROVIDED=true ;;
             *)              positional+=("$arg") ;;
         esac
     done
@@ -2361,7 +2514,7 @@ handle_profile_command() {
     local new_profile="$1"
 
     if [[ -z "$new_profile" ]]; then
-        _dotfiles_log_error "Profile name required. Usage: $SCRIPT_NAME profile <core|full>"
+        _dotfiles_log_error "Profile name required. Usage: $SCRIPT_NAME profile <core|server|dev>"
         return 1
     fi
 

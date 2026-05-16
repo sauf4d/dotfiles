@@ -24,13 +24,14 @@ source "$DOTFILES_ROOT/zsh/lib/installer.zsh"
 
 # Load packages for active profile (cumulative: core ⊆ <profile>).
 # Profile dirs are derived from the filesystem: $DOTFILES_ROOT/zsh/packages/<name>/
-# Legacy aliases: `minimal` → core, `server` → full (one-shot migrated by
-# bin/dotfiles' set_defaults on next `dotfiles install`).
+# Legacy aliases (NFR-D — kept for at least one major version):
+#   `minimal` → core, `full` → dev (one-shot migrated by bin/dotfiles'
+#   set_defaults on next `dotfiles install`). `server` is now a REAL profile.
 typeset -a _pkg_dirs
 _pkg_dirs=("$DOTFILES_ROOT/zsh/packages/core")
 if [[ "${DOTFILES_PROFILE}" != "core" && "${DOTFILES_PROFILE}" != "minimal" ]]; then
     _profile="${DOTFILES_PROFILE}"
-    [[ "$_profile" == "server" ]] && _profile="full"  # legacy alias
+    [[ "$_profile" == "full" ]] && _profile="dev"  # legacy alias
     if [[ -d "$DOTFILES_ROOT/zsh/packages/$_profile" ]]; then
         _pkg_dirs+=("$DOTFILES_ROOT/zsh/packages/$_profile")
     else

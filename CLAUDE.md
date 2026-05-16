@@ -87,7 +87,10 @@ Filesystem-derived: any directory `zsh/packages/<name>/` is a valid
 profile. `DOTFILES_PROFILE` (in `~/.zshenv` managed block) selects one.
 Cumulative — `core/` always loads first, then the named profile.
 
-Migration in progress: `core` / `full` → `core` / `server` / `dev`.
+Profile names: `core` (always), `server` (thin VPS, currently empty), `dev`
+(full workstation — node/go/python/bun + bat/eza/fd/fzf/jq/rg/zoxide).
+Legacy aliases (NFR-D): `minimal` → `core`, `full` → `dev`. Migrated by
+`set_defaults` on next CLI invocation; warns once and persists the new name.
 
 ### Override env vars (per-machine, written to `~/.zshenv` managed block)
 

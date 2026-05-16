@@ -10,8 +10,9 @@
 # you need reproducibility; use "latest" to always pull the newest stable
 # release on the next install.
 #
-# Profile note: this file ships in the `full` profile only. `core` profile
-# users (sheldon + tmux) don't get any of these tools.
+# Profile note: this file ships in the `dev` profile only. `core` profile
+# users (sheldon + tmux) and `server` profile users don't get any of these
+# tools — the SDK group is intentional bloat for thin VPS hosts.
 
 [tools]
 # ── Language runtimes (the SDKs vfox used to manage) ─────────────────────
