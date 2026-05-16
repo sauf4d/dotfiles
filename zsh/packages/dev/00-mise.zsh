@@ -8,6 +8,36 @@
 PKG_NAME="mise"
 PKG_DESC="Polyglot tool & SDK version manager (replaces vfox + per-tool apt/brew)"
 
+# Mise installs land in different prefixes depending on package manager:
+#   apt    → /usr/bin/mise          (always on PATH)
+#   brew   → /usr/local/bin or /opt/homebrew/bin or /home/linuxbrew/...
+#   curl   → ~/.local/bin/mise      (appended by zsh/core/10-options.zsh)
+#   cargo  → ~/.cargo/bin/mise
+# The default `command -v` check fails when mise was installed somewhere
+# `.zshrc`'s PATH setup doesn't cover (brew shellenv not loaded yet, etc.),
+# producing a spurious "mise not installed" warning at every shell start.
+# Probe known prefixes and prepend whichever has mise so the rest of init
+# works without depending on PATH order.
+_dotfiles_mise_check() {
+    command -v mise &>/dev/null && return 0
+    local _mise_bin _dir
+    for _mise_bin in \
+        "$HOME/.local/bin/mise" \
+        "/usr/local/bin/mise" \
+        "/opt/homebrew/bin/mise" \
+        "/home/linuxbrew/.linuxbrew/bin/mise" \
+        "$HOME/.cargo/bin/mise"
+    do
+        if [[ -x "$_mise_bin" ]]; then
+            _dir="${_mise_bin%/*}"
+            [[ ":$PATH:" != *":$_dir:"* ]] && export PATH="$_dir:$PATH"
+            return 0
+        fi
+    done
+    return 1
+}
+PKG_CHECK_FUNC="_dotfiles_mise_check"
+
 # Tool manifest lives in config/mise/config.toml (symlinked to
 # ~/.config/mise/config.toml). Edit that file to add/remove tools — runs
 # transparently on the next `dotfiles install` via pkg_post_install.
