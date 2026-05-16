@@ -240,7 +240,7 @@ function Invoke-Install {
     Write-MiseOverrides
 
     # 3. Mise + tool install — dot-source the package to fire its init.
-    . (Join-Path $DotfilesRoot 'pwsh\packages\dev\00-Mise.ps1')
+    . (Join-Path $DotfilesRoot 'pwsh\packages\core\Mise.ps1')
 
     # 4. Write the $PROFILE managed block (also regenerates the mise overlay).
     Save-DotfilesConfig
@@ -297,7 +297,9 @@ function Invoke-ConfigCommand {
         }
         'get'     {
             if ($ConfigArgs.Count -lt 2) { Write-DotfilesError 'Usage: dotfiles config get <key>'; return 1 }
-            Write-Output (Get-ConfigValue ("DOTFILES_" + $ConfigArgs[1].ToUpper()))
+            # Write directly to stdout. Write-Output here would be captured by
+            # the dispatcher's `$exit = switch { ... }` and never reach the user.
+            [Console]::Out.WriteLine((Get-ConfigValue ("DOTFILES_" + $ConfigArgs[1].ToUpper())))
         }
         'set'     {
             if ($ConfigArgs.Count -lt 2) { Write-DotfilesError 'Usage: dotfiles config set <key> <value>'; return 1 }
@@ -334,8 +336,12 @@ function Invoke-ConfigCommand {
             if (-not $editor) { $editor = 'notepad' }
             & $editor $ConfigFile
         }
-        'path'    { Write-Output $ConfigFile }
-        'keys'    { 'profile','verbose','exclude','extra' | ForEach-Object { Write-Output $_ } }
+        'path'    { [Console]::Out.WriteLine($ConfigFile) }
+        'keys'    {
+            foreach ($k in 'profile','verbose','exclude','extra') {
+                [Console]::Out.WriteLine($k)
+            }
+        }
         default   { Write-DotfilesError "Unknown action: $action"; return 1 }
     }
     return 0
@@ -447,8 +453,8 @@ function Invoke-Doctor {
     }
     Write-DotfilesStep 'Checking symlinks'
     $issues += (Invoke-Verify)
-    if (Test-Path (Join-Path $DotfilesRoot 'pwsh\packages\dev\00-Mise.ps1')) {
-        . (Join-Path $DotfilesRoot 'pwsh\packages\dev\00-Mise.ps1')
+    if (Test-Path (Join-Path $DotfilesRoot 'pwsh\packages\core\Mise.ps1')) {
+        . (Join-Path $DotfilesRoot 'pwsh\packages\core\Mise.ps1')
         $issues += (Test-DotfilesMiseHealth)
     }
     if ($issues -eq 0) {
