@@ -1,0 +1,42 @@
+# mise — unified tool manifest, synced across machines via dotfiles.
+# Symlinked to ~/.config/mise/config.toml by the dotfiles installer.
+#
+# Install policy: tools are installed ONLY when you run `dotfiles install`
+# (which triggers `mise install --yes` from 00-mise.zsh's pkg_post_install
+# hook). Opening a new shell does NOT install anything — the [settings]
+# block below disables every auto-install path mise supports.
+#
+# Edit and run `dotfiles install` to apply. Pin a concrete version when
+# you need reproducibility; use "latest" to always pull the newest stable
+# release on the next install.
+#
+# Profile note: this file ships in the `full` profile only. `core` profile
+# users (sheldon + tmux) don't get any of these tools.
+
+[tools]
+# ── Language runtimes (the SDKs vfox used to manage) ─────────────────────
+node   = "latest"
+go     = "latest"
+python = "latest"
+bun    = "latest"
+
+# Rust intentionally omitted — use rustup directly (canonical Rust toolchain).
+
+# ── CLI tools (consolidated from per-package OS install paths) ───────────
+# Bare names resolve via mise's built-in registry to the right backend
+# (github releases, aqua, asdf — mise picks the best one). If you ever need
+# to pin a specific backend, use the long form: "github:owner/repo".
+bat     = "latest"   # cat with syntax highlighting
+eza     = "latest"   # modern ls
+fd      = "latest"   # friendlier find
+fzf     = "latest"   # fuzzy finder
+jq      = "latest"   # JSON processor
+ripgrep = "latest"   # fast grep (binary: rg)
+zoxide  = "latest"   # smarter cd
+
+[settings]
+# Install only on explicit `mise install` / `dotfiles install`. None of
+# these should ever trigger a download from shell activation, directory
+# change, or missing-command hook — `dotfiles install` is the sole ingress.
+not_found_auto_install = false   # don't install on command-not-found
+idiomatic_version_file = false   # ignore .nvmrc / .python-version etc.
