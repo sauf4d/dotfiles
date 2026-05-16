@@ -308,14 +308,17 @@ save_config() {
 
     if [[ -f "$CONFIG_FILE" ]] && grep -q "^# DOTFILES MANAGED BEGIN" "$CONFIG_FILE"; then
         # Markers exist: replace only between them. Preserves all other
-        # user-added content in ~/.zshenv.
+        # user-added content in ~/.zshenv. Implemented as three sed slices
+        # because BSD awk (macOS default) rejects newlines inside `-v` values
+        # — passing the multi-line $block via -v block="$block" produced
+        # "awk: newline in string ..." on every save_config.
         local _tmp
         _tmp="$(mktemp "${CONFIG_FILE}.XXXXXX")" || return 1
-        awk -v block="$block" '
-            /^# DOTFILES MANAGED BEGIN/ { skip = 1; print block; next }
-            /^# DOTFILES MANAGED END/   { skip = 0; next }
-            !skip { print }
-        ' "$CONFIG_FILE" > "$_tmp" && mv "$_tmp" "$CONFIG_FILE"
+        {
+            sed -n '/^# DOTFILES MANAGED BEGIN/q;p' "$CONFIG_FILE"
+            printf '%s\n' "$block"
+            sed -n '/^# DOTFILES MANAGED END/,$p' "$CONFIG_FILE" | tail -n +2
+        } > "$_tmp" && mv "$_tmp" "$CONFIG_FILE"
     else
         # No markers — migrate from legacy format. Strip the old un-marked
         # block (header comment + bare DOTFILES_ exports), collapse trailing
