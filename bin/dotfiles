@@ -1570,7 +1570,7 @@ uninstall_dotfiles() {
 #   2. Only removes links whose target points INTO the dotfiles repo
 #      (user's own symlinks to other locations are never touched)
 #   3. Only removes links whose target is missing (active links stay)
-#   4. mise leftovers (~/.local/share/mise etc.) → hint only, never auto-delete
+#   4. vfox leftovers (~/.version-fox etc.) → hint only, never auto-delete
 #   5. Dry-run by default; --force required to apply
 clean_dotfiles() {
     local force=false
@@ -1801,7 +1801,7 @@ doctor_dotfiles() {
     done
 
     local stale_ok=1
-    [[ -d "$HOME/.local/share/mise" || -d "$HOME/.config/mise" ]] && stale_ok=0
+    [[ -d "$HOME/.version-fox" || -d "$HOME/.config/vfox" ]] && stale_ok=0
 
     echo
     (( tools_ok )) && _dotfiles_badge OK "Tools" || _dotfiles_badge FAIL "Tools"
@@ -1815,7 +1815,7 @@ doctor_dotfiles() {
     else
         _dotfiles_badge WARN "Symlinks ($_broken broken)"
     fi
-    (( stale_ok )) && _dotfiles_badge OK "Stale" || _dotfiles_badge WARN "Stale (mise leftovers)"
+    (( stale_ok )) && _dotfiles_badge OK "Stale" || _dotfiles_badge WARN "Stale (vfox leftovers)"
     echo
 
     # =========================================================================
@@ -1873,13 +1873,15 @@ doctor_dotfiles() {
         ((issues++))
     fi
 
-    # 4. mise leftovers
+    # 4. vfox leftovers — post-migration, mise is the canonical version
+    # manager, so ~/.local/share/mise + ~/.config/mise are EXPECTED dirs.
+    # The check now looks for stale vfox state from the old setup.
     _dotfiles_log_step "Checking for stale version manager state"
-    if [[ -d "$HOME/.local/share/mise" || -d "$HOME/.config/mise" ]]; then
-        _dotfiles_log_warning "mise leftovers detected — run 'dotfiles clean' for cleanup hint"
+    if [[ -d "$HOME/.version-fox" || -d "$HOME/.config/vfox" ]]; then
+        _dotfiles_log_warning "vfox leftovers detected — run 'dotfiles clean --force'"
         ((issues++))
     else
-        _dotfiles_log_detail "No mise leftovers"
+        _dotfiles_log_detail "No stale version-manager state"
     fi
 
     # 5. Per-package doctor (replaces hardcoded vfox check)
