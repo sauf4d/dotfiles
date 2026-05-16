@@ -3,7 +3,7 @@
 # Claude Code 3-line statusline — vibe-coding edition
 # =============================================================================
 # Line 1  WHERE:    📁 cwd  🔀 branch[✱] [↑↓]  +adds −dels  🌳 worktree
-# Line 2  ENGINE:   🤖 model  🎚️ effort  🧠 used%
+# Line 2  ENGINE:   🤖 model  🎚️ effort  🎯 cache-hit%  🧠 used%
 # Line 3  STATUS:   💵 cost  ⏱️ duration  🚦 5h X% (2pm)  🚦 7d Y% (Mon 9am)  👤 agent
 # =============================================================================
 
@@ -33,6 +33,18 @@ COST=$(J '.cost.total_cost_usd // 0')
 DUR_MS=$(J '.cost.total_duration_ms // 0')
 PCT_USED=$(J '.context_window.used_percentage // 0' | cut -d. -f1)
 
+# Cache hit rate — surface cumulative prompt-cache reuse so degraded caching
+# is visible at a glance. Schema varies across Claude Code releases; try the
+# most common shapes and fall back to 0 (no display) when none match.
+CACHE_READ=$(J '.cost.total_cache_read_input_tokens // .cost.cache_read_input_tokens // .usage.cache_read_input_tokens // 0')
+CACHE_INPUT=$(J '.cost.total_input_tokens // .cost.input_tokens // .usage.input_tokens // 0')
+if [ "$CACHE_READ" -gt 0 ] || [ "$CACHE_INPUT" -gt 0 ]; then
+	_denom=$((CACHE_READ + CACHE_INPUT))
+	CACHE_HIT=$((_denom > 0 ? CACHE_READ * 100 / _denom : 0))
+else
+	CACHE_HIT=""
+fi
+
 RL5_PCT=$(J '.rate_limits.five_hour.used_percentage')
 RL5_RESET=$(J '.rate_limits.five_hour.resets_at')
 RL7_PCT=$(J '.rate_limits.seven_day.used_percentage')
@@ -48,6 +60,7 @@ ICON_DIR="📁"
 ICON_GIT="🔀"
 ICON_MODEL="🤖"
 ICON_EFFORT="🎚️"
+ICON_CACHE="🎯"
 ICON_CTX="🧠"
 ICON_COST="💵"
 ICON_TIME="⏱️"
@@ -193,9 +206,20 @@ LINE1="${C}${ICON_DIR} ${DIR_SHORT}${X}${GIT_PART}"
 [ -n "$EDITS" ] && LINE1+=" ${EDITS}"
 [ -n "$WORKTREE" ] && LINE1+=" ${BM}${ICON_TREE} ${WORKTREE}${X}"
 
-# --- LINE 2: ENGINE (model · effort · ctx) -----------------------------------
+# --- LINE 2: ENGINE (model · effort · cache · ctx) ---------------------------
 LINE2="${BC}${ICON_MODEL} ${MODEL}${X}"
 [ -n "$EFFORT" ] && LINE2+=" ${ICON_EFFORT} ${EFFORT_C}${EFFORT}${X}"
+if [ -n "$CACHE_HIT" ]; then
+	# High hit rate is good — invert the usual thresholds so green = ≥80%.
+	if [ "$CACHE_HIT" -ge 80 ]; then
+		CACHE_C="$G"
+	elif [ "$CACHE_HIT" -ge 50 ]; then
+		CACHE_C="$Y"
+	else
+		CACHE_C="$R"
+	fi
+	LINE2+=" ${ICON_CACHE} ${CACHE_C}${CACHE_HIT}%${X}"
+fi
 LINE2+=" ${ICON_CTX} ${CTX_C}${W}${PCT_USED}%${X}"
 
 # --- LINE 3: STATUS (cost · duration · rate limits · agent) ------------------
