@@ -2446,7 +2446,13 @@ parse_args() {
             *)              positional+=("$arg") ;;
         esac
     done
-    set -- "${positional[@]}"
+    # bash 3.2 (macOS /bin/bash) errors on "${empty_array[@]}" expansion
+    # under `set -u`. Guard explicitly so empty positional is a no-op.
+    if (( ${#positional[@]} > 0 )); then
+        set -- "${positional[@]}"
+    else
+        set --
+    fi
 
     local command="${1:-}"
     if [[ "$command" == "-h" || "$command" == "--help" ]]; then
